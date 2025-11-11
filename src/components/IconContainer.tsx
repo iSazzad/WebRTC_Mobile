@@ -27,8 +27,10 @@ export default IconContainer;
 // 🎨 Styles
 const styles = StyleSheet.create({
   iconContainer: {
-    padding: 14,
+    // padding: 5,
     borderRadius: 50,
+    width: 50,
+    height: 50,
     alignItems: "center",
     justifyContent: "center",
   },

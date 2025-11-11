@@ -31,9 +31,13 @@ const MainApp: React.FC = () => {
   const [callerId, setCallerId] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("JOIN");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [callerCallType, setCallerCallType] = useState<string | null>(null);
+  const [calleeCallType, setCalleeCallType] = useState<string | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [callTime, setCallTime] = useState<Date | null>(null);
 
   const otherUserId = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
@@ -124,7 +128,7 @@ const MainApp: React.FC = () => {
       try {
         const offer = await newPc.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: true,
+          offerToReceiveVideo: callerCallType === "video",
           voiceActivityDetection: true,
         });
         await newPc.setLocalDescription(offer);
@@ -189,7 +193,7 @@ const MainApp: React.FC = () => {
           err
         );
       }
-      InCallManager.setSpeakerphoneOn(true);
+      InCallManager.setSpeakerphoneOn(speakerEnabled);
       setCallState("INCOMING_CALL");
     };
 
@@ -202,8 +206,20 @@ const MainApp: React.FC = () => {
           );
           await processBufferedCandidates();
           InCallManager.stopRingtone();
-          InCallManager.start({ media: "video" });
-          InCallManager.setForceSpeakerphoneOn(true);
+
+          // Check call type from the remote description
+          const hasVideo =
+            pc.current.remoteDescription?.sdp.includes("m=video");
+          const mediaType = hasVideo ? "video" : "audio";
+
+          // Start InCallManager with appropriate media type
+          InCallManager.start({ media: mediaType });
+          setCallTime(new Date());
+          setCalleeCallType(mediaType);
+
+          InCallManager.setForceSpeakerphoneOn(false);
+          setSpeakerEnabled(false);
+
           InCallManager.setMicrophoneMute(false);
           setCallState("WEBRTC_ROOM");
         }
@@ -289,8 +305,8 @@ const MainApp: React.FC = () => {
 
     // Keep device awake and speaker on during calls
     InCallManager.setKeepScreenOn(true);
-    InCallManager.setForceSpeakerphoneOn(true);
-    InCallManager.setSpeakerphoneOn(true);
+    InCallManager.setForceSpeakerphoneOn(speakerEnabled);
+    InCallManager.setSpeakerphoneOn(speakerEnabled);
     InCallManager.setMicrophoneMute(false);
 
     // Cleanup on unmount of this effect
@@ -337,6 +353,29 @@ const MainApp: React.FC = () => {
       Alert.alert("Missing callee", "Set the ID of the user you want to call.");
       return;
     }
+
+    // Show dialog to choose call type
+    Alert.alert(
+      "Choose Call Type",
+      "Do you want to make an audio or video call?",
+      [
+        {
+          text: "Audio Call",
+          onPress: () => initiateCall("audio"),
+        },
+        {
+          text: "Video Call",
+          onPress: () => initiateCall("video"),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Handle call initiation after type selection
+  const initiateCall = async (type: "audio" | "video") => {
+    setCallerCallType(null);
+    setCalleeCallType(type);
     if (!pc.current || pc.current.connectionState === "closed") {
       createNewPeerConnection();
     }
@@ -348,7 +387,7 @@ const MainApp: React.FC = () => {
             .getSenders()
             .some((sender) => sender.track && sender.track.id === track.id);
           if (!alreadyAdded) {
-            pc!.current.addTrack(track, localStream);
+            pc.current.addTrack(track, localStream);
           }
         });
       }
@@ -393,14 +432,21 @@ const MainApp: React.FC = () => {
       await processBufferedCandidates();
       const answer = await pc.current.createAnswer();
       await pc.current.setLocalDescription(answer);
+
+      const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
+      const mediaType = hasVideo ? "video" : "audio";
+      console.log("media type: ", hasVideo);
+
       socket.current.emit("answerCall", {
         callerId: otherUserId.current,
         rtcMessage: answer,
       });
       InCallManager.stopRingtone();
-      InCallManager.start({ media: "video" });
-      InCallManager.setForceSpeakerphoneOn(true);
+      InCallManager.start({ media: mediaType });
+      InCallManager.setForceSpeakerphoneOn(speakerEnabled);
       InCallManager.setMicrophoneMute(false);
+      setCallTime(new Date());
+      setCalleeCallType(mediaType);
       setCallState("WEBRTC_ROOM");
     } catch (err) {
       console.error("acceptCall error:", err);
@@ -437,6 +483,9 @@ const MainApp: React.FC = () => {
       pc.current?.close();
     } catch (e) {}
     setRemoteStream(null);
+    setCallTime(null);
+    setCallerCallType(null);
+    setCalleeCallType(null);
     setCallState("JOIN");
     InCallManager.stop();
     InCallManager.stopRingtone();
@@ -453,11 +502,18 @@ const MainApp: React.FC = () => {
     InCallManager.setMicrophoneMute(!enabled);
   };
 
+  // Toggle Speaker
+  const toggleSpeaker = () => {
+    InCallManager.setSpeakerphoneOn(!speakerEnabled);
+    setSpeakerEnabled(!speakerEnabled);
+  };
+
   // Toggle camera
   const toggleCamera = () => {
     const enabled = !cameraEnabled;
     setCameraEnabled(enabled);
     localStream?.getVideoTracks().forEach((t) => (t.enabled = enabled));
+    localStream?.get;
   };
 
   // Switch camera
@@ -512,13 +568,19 @@ const MainApp: React.FC = () => {
       return (
         <WebrtcRoomScreen
           localStream={localStream}
+          otherUserId={otherUserId.current}
           remoteStream={remoteStream}
           localMicOn={micEnabled}
           localWebcamOn={cameraEnabled}
+          callTime={callTime}
+          callerCallType={callerCallType}
+          calleeCallType={calleeCallType}
           onLeave={leaveCall}
           onToggleMic={toggleMic}
           onToggleCamera={toggleCamera}
           onSwitchCamera={switchCamera}
+          localSpeakerOn={speakerEnabled}
+          onToggleSpeaker={toggleSpeaker}
         />
       );
     default:
