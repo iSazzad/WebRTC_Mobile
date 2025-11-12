@@ -7,12 +7,16 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Platform,
+  Alert,
 } from "react-native";
 import TextInputContainer from "./TextInputContainer";
+import Feather from "react-native-vector-icons/Feather";
+import Clipboard from "@react-native-clipboard/clipboard";
+import { Color } from "../utils/colors";
 
 interface JoinScreenProps {
   callerId: string;
-  onJoin: () => void;
+  onJoin: (type: "audio" | "video") => void;
   setOtherUserId: (id: string) => void;
 }
 
@@ -20,76 +24,128 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
   callerId,
   onJoin,
   setOtherUserId,
-}) => (
-  <KeyboardAvoidingView
-    behavior={Platform.OS === "ios" ? "padding" : "height"}
-    style={{
-      flex: 1,
-      backgroundColor: "#050A0E",
-      justifyContent: "center",
-      paddingHorizontal: 42,
-    }}
-  >
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={{ flex: 1, justifyContent: "center" }}>
+}) => {
+  const handleCopy = () => {
+    Clipboard.setString(callerId);
+    Alert.alert("Copied!", "Your Caller has been copied to clipboard.");
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{
+        flex: 1,
+        backgroundColor: Color.ThemeMain,
+        justifyContent: "center",
+        paddingHorizontal: 24,
+      }}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View
           style={{
-            padding: 35,
-            backgroundColor: "#1A1C22",
+            flex: 1,
             justifyContent: "center",
-            alignItems: "center",
-            borderRadius: 14,
+            backgroundColor: Color.ThemeMain,
           }}
         >
-          <Text style={{ fontSize: 18, color: "#D0D4DD" }}>Your Caller ID</Text>
-          <Text
+          <View
             style={{
-              fontSize: 32,
-              color: "#fff",
-              letterSpacing: 6,
-              marginTop: 12,
-            }}
-          >
-            {callerId}
-          </Text>
-        </View>
-
-        <View
-          style={{
-            backgroundColor: "#1A1C22",
-            padding: 40,
-            marginTop: 25,
-            justifyContent: "center",
-            borderRadius: 14,
-          }}
-        >
-          <Text style={{ fontSize: 18, color: "#D0D4DD" }}>
-            Enter call id of another user
-          </Text>
-
-          <TextInputContainer
-            placeholder="Enter Caller ID"
-            keyboardType="number-pad"
-            setValue={setOtherUserId}
-          />
-
-          <TouchableOpacity
-            onPress={onJoin}
-            style={{
-              height: 50,
-              backgroundColor: "#5568FE",
+              padding: 20,
+              backgroundColor: Color.PopUpBg,
               justifyContent: "center",
               alignItems: "center",
-              borderRadius: 12,
-              marginTop: 16,
+              borderRadius: 14,
             }}
           >
-            <Text style={{ fontSize: 16, color: "#FFF" }}>Call Now</Text>
-          </TouchableOpacity>
+            <Text style={{ fontSize: 18, color: Color.TitleGrey }}>
+              Your Caller ID
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: 12,
+                gap: 20,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  color: Color.White,
+                  letterSpacing: 6,
+                }}
+              >
+                {callerId}
+              </Text>
+              <TouchableOpacity style={{ padding: 5 }} onPress={handleCopy}>
+                <Feather name="copy" color={Color.White} size={20} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View
+            style={{
+              backgroundColor: Color.PopUpBg,
+              padding: 40,
+              paddingVertical: 20,
+              marginTop: 16,
+              justifyContent: "center",
+              borderRadius: 14,
+              gap: 10,
+            }}
+          >
+            <Text style={{ fontSize: 18, color: Color.TitleGrey }}>
+              Enter call id of another user
+            </Text>
+
+            <TextInputContainer
+              placeholder="Enter Caller ID"
+              keyboardType="number-pad"
+              setValue={setOtherUserId}
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 20,
+                justifyContent: "center",
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => onJoin("audio")}
+                style={{
+                  height: 50,
+                  width: 50,
+                  backgroundColor: Color.ThemeMain,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  borderRadius: 12,
+                  marginTop: 16,
+                }}
+              >
+                <Feather name="phone-call" size={24} color={"#FFF"} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onJoin("video")}
+                style={{
+                  height: 50,
+                  width: 50,
+                  backgroundColor: Color.ThemeMain,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  borderRadius: 12,
+                  marginTop: 16,
+                }}
+              >
+                <Feather name="video" size={24} color={"#FFF"} />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      </View>
-    </TouchableWithoutFeedback>
-  </KeyboardAvoidingView>
-);
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  );
+};
 
 export default JoinScreen;

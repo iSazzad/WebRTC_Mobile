@@ -16,28 +16,33 @@ import JoinScreen from "./components/JoinScreen";
 import OutgoingCallScreen from "./components/OutgoingCallScreen";
 import IncomingCallScreen from "./components/IncomingCallScreen";
 import WebrtcRoomScreen from "./components/WebrtcRoomScreen";
+import { ICE_SERVERS, SIGNAL_URL } from "./config/webrtc";
+import NewUserScreen from "./components/NewUserScreen";
+import { UserModel } from "./api/user";
 
-type CallState = "JOIN" | "OUTGOING_CALL" | "INCOMING_CALL" | "WEBRTC_ROOM";
-
-const STUN_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-];
-
-const url = "http://192.168.0.115:3000";
+type CallState =
+  | "NEW_USER"
+  | "JOIN"
+  | "OUTGOING_CALL"
+  | "INCOMING_CALL"
+  | "WEBRTC_ROOM";
 
 const MainApp: React.FC = () => {
   const [callerId, setCallerId] = useState<string | null>(null);
-  const [callState, setCallState] = useState<CallState>("JOIN");
+  const [callState, setCallState] = useState<CallState>("NEW_USER");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [callerCallType, setCallerCallType] = useState<string | null>(null);
-  const [calleeCallType, setCalleeCallType] = useState<string | null>(null);
+  const [localCallType, setLocalCallType] = useState<"audio" | "video" | null>(
+    null
+  );
+  const [remoteCallType, setRemoteCallType] = useState<
+    "audio" | "video" | null
+  >(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [callTime, setCallTime] = useState<Date | null>(null);
+  const [userDetail, setUserDetail] = useState<UserModel | null>(null);
 
   const otherUserId = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
@@ -51,7 +56,7 @@ const MainApp: React.FC = () => {
 
   // Final createNewPeerConnection function
   const createNewPeerConnection = (): RTCPeerConnection => {
-    const newPc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+    const newPc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
     console.log("PeerConnection created:", newPc);
 
@@ -60,9 +65,9 @@ const MainApp: React.FC = () => {
         "Remote track event fired:",
         event.track?.kind,
         event.track?.id,
-        event.streams?.map((s) => s.id)
+        event.streams?.map((s: any) => s.id)
       );
-      setRemoteStream((prev) => {
+      setRemoteStream((prev: any) => {
         if (prev) {
           try {
             prev.addTrack(event.track);
@@ -78,7 +83,7 @@ const MainApp: React.FC = () => {
       });
     };
 
-    newPc.onicecandidate = (event) => {
+    newPc.onicecandidate = (event: any) => {
       console.log("ICE candidate event fired:", event.candidate);
       if (!event.candidate) return;
       if (socket.current && otherUserId.current) {
@@ -89,23 +94,38 @@ const MainApp: React.FC = () => {
       }
     };
 
-    newPc.onicecandidateerror = (event) => {
+    newPc.onicecandidateerror = (event: any) => {
       console.warn("ICE candidate error event fired:", event);
     };
 
-    newPc.onconnectionstatechange = () => {
+    newPc.onconnectionstatechange = async () => {
       const state = newPc.connectionState;
       console.log("PeerConnection connectionStateChange event fired:", state);
-      if (["disconnected", "failed", "closed"].includes(state)) {
+      if (["disconnected", "failed"].includes(state)) {
+        // Try ICE restart first
+        try {
+          const offer = await newPc.createOffer({ iceRestart: true });
+          await newPc.setLocalDescription(offer);
+          if (socket.current && otherUserId.current) {
+            socket.current.emit("call", {
+              calleeId: otherUserId.current,
+              rtcMessage: offer,
+            });
+          }
+          return; // wait to see if restart recovers
+        } catch (e) {
+          console.warn("ICE restart attempt failed:", e);
+        }
+      }
+      if (["failed", "closed"].includes(state)) {
         try {
           newPc.close();
         } catch (e) {}
-        // Re-create PC and reattach local tracks
         pc.current = createNewPeerConnection();
         if (localStream) {
           localStream
             .getTracks()
-            .forEach((track) => pc.current?.addTrack(track, localStream));
+            .forEach((track: any) => pc.current?.addTrack(track, localStream));
         }
       }
     };
@@ -128,7 +148,7 @@ const MainApp: React.FC = () => {
       try {
         const offer = await newPc.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: callerCallType === "video",
+          offerToReceiveVideo: localCallType === "video",
           voiceActivityDetection: true,
         });
         await newPc.setLocalDescription(offer);
@@ -154,12 +174,15 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     const loadCallerId = async () => {
       try {
-        let id = await AsyncStorage.getItem("callerId");
-        if (!id) {
-          id = Math.floor(100000 + Math.random() * 900000).toString();
-          await AsyncStorage.setItem("callerId", id);
+        const user = await AsyncStorage.getItem("userDetails");
+        if (user) {
+          const userData: UserModel = JSON.parse(user);
+          setCallerId(userData.userId);
+          setUserDetail(userData);
+          setCallState("JOIN");
+        } else {
+          setCallState("NEW_USER");
         }
-        setCallerId(id);
       } catch (error) {
         console.error("Error loading callerId:", error);
       }
@@ -167,16 +190,19 @@ const MainApp: React.FC = () => {
     loadCallerId();
   }, []);
 
-  // Setup socket, peer connection, and local media
+  // Setup socket and peer connection
   useEffect(() => {
     if (!callerId) return;
 
     // Create initial PeerConnection
     createNewPeerConnection();
 
-    // Initialize socket (adjust server URL to your environment)
-    socket.current = SocketIOClient(url, {
+    // Initialize socket
+    socket.current = SocketIOClient(SIGNAL_URL, {
       transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
       query: { callerId },
     });
     const sock = socket.current;
@@ -207,15 +233,14 @@ const MainApp: React.FC = () => {
           await processBufferedCandidates();
           InCallManager.stopRingtone();
 
-          // Check call type from the remote description
+          // Infer remote call type
           const hasVideo =
             pc.current.remoteDescription?.sdp.includes("m=video");
           const mediaType = hasVideo ? "video" : "audio";
+          setRemoteCallType(mediaType);
 
-          // Start InCallManager with appropriate media type
           InCallManager.start({ media: mediaType });
           setCallTime(new Date());
-          setCalleeCallType(mediaType);
 
           InCallManager.setForceSpeakerphoneOn(false);
           setSpeakerEnabled(false);
@@ -280,30 +305,7 @@ const MainApp: React.FC = () => {
     sock.on("callRejected", handleCallRejected);
     sock.on("callEnded", handleCallEnded);
 
-    // Get user media once
-    let mounted = true;
-    mediaDevices
-      .getUserMedia({ audio: true, video: true })
-      .then((stream: MediaStream) => {
-        if (!mounted) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        console.log("localStream tracks:", stream.getTracks());
-        setLocalStream(stream);
-        // Attach tracks to existing peer connection
-        if (pc.current) {
-          stream.getTracks().forEach((track) => {
-            console.log("Adding track:", track.kind, track.id, track.enabled);
-            pc.current?.addTrack(track, stream);
-          });
-        }
-      })
-      .catch((err) => {
-        console.error("getUserMedia error:", err);
-      });
-
-    // Keep device awake and speaker on during calls
+    // Keep device awake defaults
     InCallManager.setKeepScreenOn(true);
     InCallManager.setForceSpeakerphoneOn(speakerEnabled);
     InCallManager.setSpeakerphoneOn(speakerEnabled);
@@ -311,8 +313,6 @@ const MainApp: React.FC = () => {
 
     // Cleanup on unmount of this effect
     return () => {
-      mounted = false;
-
       sock.off("newCall", handleNewCall);
       sock.off("callAnswered", handleCallAnswered);
       sock.off("ICEcandidate", handleICEcandidate);
@@ -347,59 +347,87 @@ const MainApp: React.FC = () => {
     }
   };
 
+  // Helper to get local media based on type
+  const getLocalMedia = async (
+    type: "audio" | "video"
+  ): Promise<MediaStream> => {
+    if (type === "audio") {
+      return mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+    return mediaDevices.getUserMedia({
+      audio: true,
+      video: {
+        facingMode: "user",
+        frameRate: 24,
+        width: { ideal: 720 },
+        height: { ideal: 1280 },
+      },
+    });
+  };
+
   // Start outgoing call explicitly
-  const startCall = async () => {
+  const startCall = async (type: string) => {
     if (!socket.current || !otherUserId.current) {
       Alert.alert("Missing callee", "Set the ID of the user you want to call.");
       return;
     }
-
-    // Show dialog to choose call type
-    Alert.alert(
-      "Choose Call Type",
-      "Do you want to make an audio or video call?",
-      [
-        {
-          text: "Audio Call",
-          onPress: () => initiateCall("audio"),
-        },
-        {
-          text: "Video Call",
-          onPress: () => initiateCall("video"),
-        },
-      ],
-      { cancelable: true }
-    );
+    initiateCall(type);
+    // Alert.alert(
+    //   "Choose Call Type",
+    //   "Do you want to make an audio or video call?",
+    //   [
+    //     { text: "Audio Call", onPress: () => initiateCall("audio") },
+    //     { text: "Video Call", onPress: () => initiateCall("video") },
+    //   ],
+    //   { cancelable: true }
+    // );
   };
 
   // Handle call initiation after type selection
   const initiateCall = async (type: "audio" | "video") => {
-    setCallerCallType(null);
-    setCalleeCallType(type);
+    setLocalCallType(type);
+    setRemoteCallType(null);
+    setCameraEnabled(type === "video");
     if (!pc.current || pc.current.connectionState === "closed") {
       createNewPeerConnection();
     }
     try {
       if (!pc.current) return;
-      if (localStream) {
-        localStream.getTracks().forEach((track) => {
-          const alreadyAdded = pc.current
-            .getSenders()
-            .some((sender) => sender.track && sender.track.id === track.id);
-          if (!alreadyAdded) {
-            pc.current.addTrack(track, localStream);
-          }
-        });
+
+      // Ensure local media matches type
+      let stream = localStream;
+      if (!stream) {
+        stream = await getLocalMedia(type);
+        setLocalStream(stream);
+      } else {
+        // If switching to audio-only, remove/stop video tracks
+        if (type === "audio") {
+          stream.getVideoTracks().forEach((t) => {
+            t.stop();
+            stream?.removeTrack(t);
+          });
+        }
       }
+
+      // Attach tracks
+      stream.getTracks().forEach((track) => {
+        const alreadyAdded = pc
+          .current!.getSenders()
+          .some((sender) => sender.track && sender.track.id === track.id);
+        if (!alreadyAdded) {
+          pc.current!.addTrack(track, stream!);
+        }
+      });
+
       if (!makingOffer.current) {
         makingOffer.current = true;
         const offer = await pc.current.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: true,
+          offerToReceiveVideo: type === "video",
           voiceActivityDetection: true,
         });
         await pc.current.setLocalDescription(offer);
-        socket.current.emit("call", {
+        socket.current!.emit("call", {
           calleeId: otherUserId.current,
           rtcMessage: offer,
         });
@@ -416,37 +444,48 @@ const MainApp: React.FC = () => {
   const acceptCall = async () => {
     if (!pc.current || !socket.current || !remoteRTCMessage.current) return;
     try {
-      if (localStream) {
-        localStream.getTracks().forEach((track) => {
-          const alreadyAdded = pc.current
-            .getSenders()
-            .some((sender) => sender.track && sender.track.id === track.id);
-          if (!alreadyAdded) {
-            pc.current.addTrack(track, localStream);
-          }
-        });
-      }
+      // 1) Apply remote offer
       await pc.current.setRemoteDescription(
         new RTCSessionDescription(remoteRTCMessage.current)
       );
+
+      // 2) Determine needed local media from offer
+      const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
+      const neededType: "audio" | "video" = hasVideo ? "video" : "audio";
+      setRemoteCallType(neededType);
+      setCameraEnabled(neededType === "video");
+
+      // 3) Ensure local media matches needed type and attach tracks
+      let stream = localStream;
+      if (!stream) {
+        stream = await getLocalMedia(neededType);
+        setLocalStream(stream);
+        setLocalCallType(neededType);
+      }
+      stream.getTracks().forEach((track) => {
+        const alreadyAdded = pc
+          .current!.getSenders()
+          .some((sender) => sender.track && sender.track.id === track.id);
+        if (!alreadyAdded) pc.current!.addTrack(track, stream!);
+      });
+
+      // 4) Add buffered candidates
       await processBufferedCandidates();
+
+      // 5) Create and send answer
       const answer = await pc.current.createAnswer();
       await pc.current.setLocalDescription(answer);
-
-      const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
-      const mediaType = hasVideo ? "video" : "audio";
-      console.log("media type: ", hasVideo);
-
       socket.current.emit("answerCall", {
         callerId: otherUserId.current,
         rtcMessage: answer,
       });
+
+      // 6) Start call UI/audio routing
       InCallManager.stopRingtone();
-      InCallManager.start({ media: mediaType });
+      InCallManager.start({ media: neededType });
       InCallManager.setForceSpeakerphoneOn(speakerEnabled);
       InCallManager.setMicrophoneMute(false);
       setCallTime(new Date());
-      setCalleeCallType(mediaType);
       setCallState("WEBRTC_ROOM");
     } catch (err) {
       console.error("acceptCall error:", err);
@@ -469,6 +508,11 @@ const MainApp: React.FC = () => {
   };
 
   // Leave/cancel/reject call
+  const stopLocalMedia = () => {
+    localStream?.getTracks().forEach((t) => t.stop());
+    setLocalStream(null);
+  };
+
   const leaveCall = () => {
     if (socket.current && otherUserId.current) {
       if (callState === "OUTGOING_CALL") {
@@ -480,13 +524,15 @@ const MainApp: React.FC = () => {
       }
     }
     try {
+      pc.current?.getSenders().forEach((s) => s.track && s.replaceTrack(null));
       pc.current?.close();
     } catch (e) {}
     setRemoteStream(null);
     setCallTime(null);
-    setCallerCallType(null);
-    setCalleeCallType(null);
+    setLocalCallType(null);
+    setRemoteCallType(null);
     setCallState("JOIN");
+    stopLocalMedia();
     InCallManager.stop();
     InCallManager.stopRingtone();
     otherUserId.current = null;
@@ -523,28 +569,40 @@ const MainApp: React.FC = () => {
     });
   };
 
-  // UI: loading
-  if (!callerId) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#050A0E",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ color: "#FFF" }}>Loading Caller ID...</Text>
-      </View>
-    );
-  }
+  // // UI: loading
+  // if (!callerId) {
+  //   return (
+  //     <View
+  //       style={{
+  //         flex: 1,
+  //         backgroundColor: "#050A0E",
+  //         justifyContent: "center",
+  //         alignItems: "center",
+  //       }}
+  //     >
+  //       <Text style={{ color: "#FFF" }}>Loading Caller ID...</Text>
+  //     </View>
+  //   );
+  // }
+
+  const updateUserDetails = (userDetails: UserModel) => {
+    if (userDetails.userId) {
+      console.log("iser details: ", userDetail);
+
+      setCallerId(userDetails.userId);
+      setUserDetail(userDetails);
+      setCallState("JOIN");
+    }
+  };
 
   // UI: main switch
   switch (callState) {
+    case "NEW_USER":
+      return <NewUserScreen onJoin={updateUserDetails} />;
     case "JOIN":
       return (
         <JoinScreen
-          callerId={callerId}
+          callerId={callerId!}
           onJoin={startCall}
           setOtherUserId={(id: string) => (otherUserId.current = id)}
         />
@@ -573,8 +631,8 @@ const MainApp: React.FC = () => {
           localMicOn={micEnabled}
           localWebcamOn={cameraEnabled}
           callTime={callTime}
-          callerCallType={callerCallType}
-          calleeCallType={calleeCallType}
+          localCallType={localCallType}
+          remoteCallType={remoteCallType}
           onLeave={leaveCall}
           onToggleMic={toggleMic}
           onToggleCamera={toggleCamera}

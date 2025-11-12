@@ -15,14 +15,14 @@ const TextInputContainer: React.FC<TextInputContainerProps> = ({
   <TextInput
     style={{
       height: 50,
-      backgroundColor: "#333",
+      backgroundColor: "#fff",
       borderRadius: 8,
       marginTop: 12,
       paddingHorizontal: 16,
-      color: "#FFF",
+      color: "#111",
     }}
     placeholder={placeholder}
-    placeholderTextColor="#AAA"
+    placeholderTextColor="#ccc"
     keyboardType={keyboardType}
     onChangeText={setValue}
   />

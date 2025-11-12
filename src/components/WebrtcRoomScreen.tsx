@@ -16,8 +16,8 @@ interface WebrtcRoomScreenProps {
   otherUserId: string | null;
   localSpeakerOn: boolean;
   callTime: Date | null;
-  callerCallType: string | null;
-  calleeCallType: string | null;
+  localCallType: 'audio' | 'video' | null;
+  remoteCallType: 'audio' | 'video' | null;
   localWebcamOn: boolean;
   onLeave: () => void;
   onToggleMic: () => void;
@@ -33,8 +33,8 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
   otherUserId,
   localWebcamOn,
   callTime,
-  callerCallType,
-  calleeCallType,
+  localCallType,
+  remoteCallType,
   onLeave,
   onToggleMic,
   onToggleCamera,
@@ -69,12 +69,12 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
     ).padStart(2, "0")}`;
   };
 
-  console.log("caller type: ", callerCallType, remoteStream);
-  console.log("callee type: ", calleeCallType);
+  console.log("local type: ", localCallType, remoteStream);
+  console.log("remote type: ", remoteCallType);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
-      {calleeCallType && calleeCallType == "video" && remoteStream ? (
+      {remoteCallType && remoteCallType == "video" && remoteStream ? (
         <RTCView
           streamURL={remoteStream.toURL()}
           style={{ flex: 1 }}
@@ -88,8 +88,8 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
             alignItems: "center",
           }}
         >
-          {calleeCallType && remoteStream ? (
-            <Text style={{ color: "#FFF" }}>talking with {otherUserId}</Text>
+          {remoteCallType && remoteStream ? (
+            <Text style={{ color: "#FFF" }}>Talking with {otherUserId}</Text>
           ) : (
             <Text style={{ color: "#FFF" }}>Waiting for remote stream...</Text>
           )}
@@ -110,7 +110,7 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
         {formatTime()}
       </Text>
 
-      {callerCallType && callerCallType == "video" && localStream && (
+      {localCallType && localCallType == "video" && localStream && (
         <RTCView
           streamURL={localStream.toURL()}
           style={{
@@ -122,9 +122,10 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
             borderRadius: 10,
           }}
           objectFit="cover"
+          mirror={!!(localCallType === "video" && localWebcamOn)}
         />
       )}
-      {callerCallType && callerCallType == "video" && localStream && (
+      {localCallType && localCallType == "video" && localStream && (
         <IconContainer
           style={[
             styles.borderIcon,

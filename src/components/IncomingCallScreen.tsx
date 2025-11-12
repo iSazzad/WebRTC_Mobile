@@ -31,7 +31,7 @@ const IncomingCallScreen: React.FC<IncomingCallScreenProps> = ({
     >
       <Text
         style={{
-          fontSize: 36,
+          fontSize: 24,
           marginTop: 12,
           color: "#ffff",
         }}
