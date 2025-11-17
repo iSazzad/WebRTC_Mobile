@@ -11,18 +11,21 @@ import {
 } from "react-native";
 import TextInputContainer from "./TextInputContainer";
 import Feather from "react-native-vector-icons/Feather";
+import FontAwesome from "react-native-vector-icons/FontAwesome";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { Color } from "../utils/colors";
 
 interface JoinScreenProps {
   callerId: string;
   onJoin: (type: "audio" | "video") => void;
+  onTapAccount: () => void;
   setOtherUserId: (id: string) => void;
 }
 
 const JoinScreen: React.FC<JoinScreenProps> = ({
   callerId,
   onJoin,
+  onTapAccount,
   setOtherUserId,
 }) => {
   const handleCopy = () => {
@@ -48,6 +51,24 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
             backgroundColor: Color.ThemeMain,
           }}
         >
+          <TouchableOpacity
+            onPress={onTapAccount}
+            style={{
+              height: 44,
+              width: 44,
+              backgroundColor: Color.PopUpBg,
+              justifyContent: "center",
+              alignItems: "center",
+              borderRadius: 30,
+              marginTop: 16,
+              position: "absolute",
+              top: 50,
+              right: 0,
+            }}
+          >
+            <FontAwesome name="user-circle-o" size={24} color={"#FFF"} />
+          </TouchableOpacity>
+
           <View
             style={{
               padding: 20,

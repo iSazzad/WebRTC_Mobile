@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   mediaDevices,
   RTCPeerConnection,
@@ -12,24 +12,25 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert, Text, View } from "react-native";
 
 // Components
-import JoinScreen from "./components/JoinScreen";
-import OutgoingCallScreen from "./components/OutgoingCallScreen";
-import IncomingCallScreen from "./components/IncomingCallScreen";
-import WebrtcRoomScreen from "./components/WebrtcRoomScreen";
-import { ICE_SERVERS, SIGNAL_URL } from "./config/webrtc";
-import NewUserScreen from "./components/NewUserScreen";
-import { UserModel } from "./api/user";
+import JoinScreen from "../components/JoinScreen";
+import OutgoingCallScreen from "../components/OutgoingCallScreen";
+import IncomingCallScreen from "../components/IncomingCallScreen";
+import WebrtcRoomScreen from "../components/WebrtcRoomScreen";
+import { ICE_SERVERS, SIGNAL_URL } from "../config/webrtc";
+import { UserModel } from "../api/user";
+import EditProfileScreen from "../components/EditProfileScreen";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 type CallState =
-  | "NEW_USER"
+  | "UPDATE_USER"
   | "JOIN"
   | "OUTGOING_CALL"
   | "INCOMING_CALL"
   | "WEBRTC_ROOM";
 
-const MainApp: React.FC = () => {
+const DashboardScreen: React.FC = () => {
   const [callerId, setCallerId] = useState<string | null>(null);
-  const [callState, setCallState] = useState<CallState>("NEW_USER");
+  const [callState, setCallState] = useState<CallState>("UPDATE_USER");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [localCallType, setLocalCallType] = useState<"audio" | "video" | null>(
     null
@@ -42,13 +43,14 @@ const MainApp: React.FC = () => {
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [callTime, setCallTime] = useState<Date | null>(null);
-  const [userDetail, setUserDetail] = useState<UserModel | null>(null);
+  const [userDetail, setUserDetail] = useState<UserModel>();
 
   const otherUserId = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
   const socket = useRef<Socket | null>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
 
+  const navigation = useNavigation();
   // Buffer for ICE candidates until remote description is set
   const remoteCandidates = useRef<RTCIceCandidate[]>([]);
   // Guard so negotiationneeded doesn't create multiple simultaneous offers
@@ -171,24 +173,24 @@ const MainApp: React.FC = () => {
   };
 
   // Load or create caller ID
-  useEffect(() => {
-    const loadCallerId = async () => {
-      try {
-        const user = await AsyncStorage.getItem("userDetails");
-        if (user) {
-          const userData: UserModel = JSON.parse(user);
-          setCallerId(userData.userId);
-          setUserDetail(userData);
-          setCallState("JOIN");
-        } else {
-          setCallState("NEW_USER");
+  useFocusEffect(
+    useCallback(() => {
+      const loadCallerId = async () => {
+        try {
+          const user = await AsyncStorage.getItem("userDetails");
+          if (user) {
+            const userData: UserModel = JSON.parse(user);
+            setCallerId(userData.userId);
+            setUserDetail(userData);
+            setCallState("JOIN");
+          }
+        } catch (error) {
+          console.error("Error loading callerId:", error);
         }
-      } catch (error) {
-        console.error("Error loading callerId:", error);
-      }
-    };
-    loadCallerId();
-  }, []);
+      };
+      loadCallerId();
+    }, [])
+  );
 
   // Setup socket and peer connection
   useEffect(() => {
@@ -365,8 +367,76 @@ const MainApp: React.FC = () => {
     });
   };
 
+  /**
+   *
+   * @returns
+   */
+  const upgradeToVideo = async () => {
+    if (!pc.current) return;
+
+    // 1. Request camera
+    const camStream = await mediaDevices.getUserMedia({
+      video: true,
+      audio: false,
+    });
+
+    const newVideoTrack = camStream.getVideoTracks()[0];
+
+    // 2. Find audio sender → replace track with video
+    const sender = pc.current
+      .getSenders()
+      .find((s:any) => s.track && s.track.kind === "audio");
+
+    if (sender) {
+      await sender.replaceTrack(newVideoTrack);
+    } else {
+      // If no sender found, add video normally
+      pc.current.addTrack(newVideoTrack, camStream);
+    }
+
+    // 3. Update local stream
+    setLocalStream((prev) => {
+      const newStream = new MediaStream(prev ? prev.getTracks() : []);
+      newStream.addTrack(newVideoTrack);
+      return newStream;
+    });
+
+    setCameraEnabled(true);
+    setLocalCallType("video");
+
+    // 4. Trigger renegotiation
+    pc.current.onnegotiationneeded && pc.current.onnegotiationneeded();
+  };
+
+  /**
+   *
+   * @returns
+   */
+
+  const downgradeToAudio = async () => {
+    if (!pc.current) return;
+
+    // Stop camera tracks
+    localStream?.getVideoTracks().forEach((t) => t.stop());
+
+    // Remove video track
+    const videoSender = pc.current
+      .getSenders()
+      .find((s) => s.track && s.track.kind === "video");
+
+    if (videoSender) {
+      await videoSender.replaceTrack(null);
+    }
+
+    setCameraEnabled(false);
+    setLocalCallType("audio");
+
+    // Trigger renegotiation
+    pc.current.onnegotiationneeded && pc.current.onnegotiationneeded();
+  };
+
   // Start outgoing call explicitly
-  const startCall = async (type: string) => {
+  const startCall = async (type: "audio" | "video") => {
     if (!socket.current || !otherUserId.current) {
       Alert.alert("Missing callee", "Set the ID of the user you want to call.");
       return;
@@ -555,11 +625,14 @@ const MainApp: React.FC = () => {
   };
 
   // Toggle camera
-  const toggleCamera = () => {
-    const enabled = !cameraEnabled;
-    setCameraEnabled(enabled);
-    localStream?.getVideoTracks().forEach((t) => (t.enabled = enabled));
-    localStream?.get;
+  const toggleCamera = async () => {
+    if (!cameraEnabled) {
+      // Turning ON
+      await upgradeToVideo();
+    } else {
+      // Turning OFF
+      await downgradeToAudio();
+    }
   };
 
   // Switch camera
@@ -569,22 +642,10 @@ const MainApp: React.FC = () => {
     });
   };
 
-  // // UI: loading
-  // if (!callerId) {
-  //   return (
-  //     <View
-  //       style={{
-  //         flex: 1,
-  //         backgroundColor: "#050A0E",
-  //         justifyContent: "center",
-  //         alignItems: "center",
-  //       }}
-  //     >
-  //       <Text style={{ color: "#FFF" }}>Loading Caller ID...</Text>
-  //     </View>
-  //   );
-  // }
-
+  /**
+   *
+   * @param userDetails
+   */
   const updateUserDetails = (userDetails: UserModel) => {
     if (userDetails.userId) {
       console.log("iser details: ", userDetail);
@@ -595,15 +656,54 @@ const MainApp: React.FC = () => {
     }
   };
 
+  /**
+   *
+   */
+  const handleProfileAccount = () => {
+    Alert.alert(
+      "Account",
+      undefined,
+      [
+        {
+          text: "Edit Profile",
+          onPress: () => {
+            setCallState("UPDATE_USER");
+          },
+        },
+        {
+          text: "Logout",
+          onPress: async () => {
+            await AsyncStorage.removeItem("userDetails");
+            navigation.goBack();
+          },
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   // UI: main switch
   switch (callState) {
-    case "NEW_USER":
-      return <NewUserScreen onJoin={updateUserDetails} />;
+    case "UPDATE_USER":
+      return (
+        <EditProfileScreen
+          onJoin={updateUserDetails}
+          user={userDetail!}
+          onBack={() => {
+            setCallState("JOIN");
+          }}
+        />
+      );
     case "JOIN":
       return (
         <JoinScreen
           callerId={callerId!}
           onJoin={startCall}
+          onTapAccount={handleProfileAccount}
           setOtherUserId={(id: string) => (otherUserId.current = id)}
         />
       );
@@ -646,4 +746,4 @@ const MainApp: React.FC = () => {
   }
 };
 
-export default MainApp;
+export default DashboardScreen;

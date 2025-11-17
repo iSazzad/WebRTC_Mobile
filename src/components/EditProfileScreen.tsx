@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -15,71 +15,58 @@ import TextInputContainer from "./TextInputContainer";
 import UserViewModel from "../viewmodels/UserViewModel";
 import { UserModel } from "../api/user";
 import { Color } from "../utils/colors";
+import { useFocusEffect } from "@react-navigation/native";
 
-interface NewUserScreenProps {
+interface EditProfileScreenProps {
   onJoin: (userDetails: UserModel) => void;
+  onBack: () => void;
+  user: UserModel;
 }
 
-const NewUserScreen: React.FC<NewUserScreenProps> = ({ onJoin }) => {
-  const [isNewUser, setIsNewUser] = useState(true);
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
+const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
+  onJoin,
+  user,
+  onBack,
+}) => {
+  const [userName, setUserName] = useState(user?.name);
+  const [otp, setOTP] = useState("");
+  const [userEmail, setUserEmail] = useState(user?.email);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isEmailConfirm, setIsEmailConfirm] = useState(false);
 
   const userViewModel = new UserViewModel();
 
-  const handleCreateUser = async () => {
+  const handleUpdateUser = async () => {
     if (userName.trim() && userEmail.trim()) {
       setIsLoading(true);
       setError(null);
-      callCreateUserAPI();
+      callUpdateUserAPI();
     } else {
       setError("Please fill in all fields");
       Alert.alert("Validation Error", "Please fill in all fields");
     }
   };
-  const handleSkip = () => {
-    setUserName("");
-    setUserEmail("");
-    callCreateUserAPI(0);
-  };
 
-  const handleJoinExisting = () => {
-    if (userEmail.trim()) {
-      callCreateUserAPI(2);
-    }
-  };
-
-  const callCreateUserAPI = async (type: number = 1) => {
+  /**
+   * Update User & Guest User API
+   * @param type
+   */
+  const callUpdateUserAPI = async (type: number = 1) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await userViewModel.createUser(
+      const response = await userViewModel.updateUser(
         type == 1 ? userName : undefined,
         type == 0 ? undefined : userEmail
       );
 
-      // Store tokens
-      if (response.tokens?.access) {
-        await AsyncStorage.setItem("accessToken", response.tokens.access);
+      if (type == 1) {
+        Alert.alert("Success", JSON.stringify(response.message).toString());
+        setIsEmailConfirm(true);
+      } else {
+        manageResponse(response);
       }
-      if (response.tokens?.refresh) {
-        await AsyncStorage.setItem("refreshToken", response.tokens.refresh);
-      }
-
-      // Store user info as single object
-      if (response.user) {
-        await AsyncStorage.setItem(
-          "userDetails",
-          JSON.stringify(response.user)
-        );
-      }
-
-      // Alert.alert("Success", JSON.stringify(response));
-      setUserName("");
-      setUserEmail("");
-      onJoin(response.user);
     } catch (err: any) {
       const errorMsg =
         err?.data?.message || err?.message || "Failed to create user";
@@ -121,25 +108,27 @@ const NewUserScreen: React.FC<NewUserScreenProps> = ({ onJoin }) => {
             }}
           >
             <Text style={{ fontSize: 18, color: "#D0D4DD", marginBottom: 16 }}>
-              {isNewUser ? "Create New User" : "Connect with Existing User"}
+              Edit Profile
             </Text>
 
-            {isNewUser && (
-              <TextInputContainer
-                placeholder="Enter Name"
-                keyboardType="default"
-                setValue={setUserName}
-              />
-            )}
             <TextInputContainer
+              placeholder="Enter Name"
+              value={userName}
+              keyboardType="default"
+              setValue={setUserName}
+            />
+
+            <TextInputContainer
+              value={userEmail}
               placeholder="Enter Email"
               keyboardType="default"
               setValue={setUserEmail}
+              editable={false}
             />
 
             <TouchableOpacity
               disabled={isLoading}
-              onPress={isNewUser ? handleCreateUser : handleJoinExisting}
+              onPress={handleUpdateUser}
               style={{
                 height: 50,
                 backgroundColor: isLoading ? "#e0e0e1ff" : Color.ThemeMain,
@@ -155,34 +144,13 @@ const NewUserScreen: React.FC<NewUserScreenProps> = ({ onJoin }) => {
                 <Text
                   style={{ fontSize: 16, color: "#FFF", fontWeight: "600" }}
                 >
-                  {isNewUser ? "Create User" : "Join Now"}
+                  {"Update"}
                 </Text>
               )}
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setIsNewUser(!isNewUser)}
-              style={{
-                backgroundColor: "transparent",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: 12,
-                marginTop: 15,
-                paddingVertical: 10,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 16,
-                  color: "#1A1C22",
-                  fontWeight: "600",
-                }}
-              >
-                {isNewUser ? "Already Exist User" : "New User"}
-              </Text>
-            </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleSkip}
+              onPress={onBack}
               style={{
                 backgroundColor: "transparent",
                 justifyContent: "center",
@@ -193,7 +161,7 @@ const NewUserScreen: React.FC<NewUserScreenProps> = ({ onJoin }) => {
               }}
             >
               <Text style={{ fontSize: 16, color: "#fff", fontWeight: "600" }}>
-                Add Later! Skip...
+                {"Back"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -203,4 +171,4 @@ const NewUserScreen: React.FC<NewUserScreenProps> = ({ onJoin }) => {
   );
 };
 
-export default NewUserScreen;
+export default EditProfileScreen;
