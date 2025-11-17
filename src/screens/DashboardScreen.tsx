@@ -367,74 +367,6 @@ const DashboardScreen: React.FC = () => {
     });
   };
 
-  /**
-   *
-   * @returns
-   */
-  const upgradeToVideo = async () => {
-    if (!pc.current) return;
-
-    // 1. Request camera
-    const camStream = await mediaDevices.getUserMedia({
-      video: true,
-      audio: false,
-    });
-
-    const newVideoTrack = camStream.getVideoTracks()[0];
-
-    // 2. Find audio sender → replace track with video
-    const sender = pc.current
-      .getSenders()
-      .find((s:any) => s.track && s.track.kind === "audio");
-
-    if (sender) {
-      await sender.replaceTrack(newVideoTrack);
-    } else {
-      // If no sender found, add video normally
-      pc.current.addTrack(newVideoTrack, camStream);
-    }
-
-    // 3. Update local stream
-    setLocalStream((prev) => {
-      const newStream = new MediaStream(prev ? prev.getTracks() : []);
-      newStream.addTrack(newVideoTrack);
-      return newStream;
-    });
-
-    setCameraEnabled(true);
-    setLocalCallType("video");
-
-    // 4. Trigger renegotiation
-    pc.current.onnegotiationneeded && pc.current.onnegotiationneeded();
-  };
-
-  /**
-   *
-   * @returns
-   */
-
-  const downgradeToAudio = async () => {
-    if (!pc.current) return;
-
-    // Stop camera tracks
-    localStream?.getVideoTracks().forEach((t) => t.stop());
-
-    // Remove video track
-    const videoSender = pc.current
-      .getSenders()
-      .find((s) => s.track && s.track.kind === "video");
-
-    if (videoSender) {
-      await videoSender.replaceTrack(null);
-    }
-
-    setCameraEnabled(false);
-    setLocalCallType("audio");
-
-    // Trigger renegotiation
-    pc.current.onnegotiationneeded && pc.current.onnegotiationneeded();
-  };
-
   // Start outgoing call explicitly
   const startCall = async (type: "audio" | "video") => {
     if (!socket.current || !otherUserId.current) {
@@ -625,14 +557,11 @@ const DashboardScreen: React.FC = () => {
   };
 
   // Toggle camera
-  const toggleCamera = async () => {
-    if (!cameraEnabled) {
-      // Turning ON
-      await upgradeToVideo();
-    } else {
-      // Turning OFF
-      await downgradeToAudio();
-    }
+  const toggleCamera = () => {
+    const enabled = !cameraEnabled;
+    setCameraEnabled(enabled);
+    localStream?.getVideoTracks().forEach((t: any) => (t.enabled = enabled));
+    localStream?.get;
   };
 
   // Switch camera
@@ -642,10 +571,6 @@ const DashboardScreen: React.FC = () => {
     });
   };
 
-  /**
-   *
-   * @param userDetails
-   */
   const updateUserDetails = (userDetails: UserModel) => {
     if (userDetails.userId) {
       console.log("iser details: ", userDetail);
@@ -656,9 +581,6 @@ const DashboardScreen: React.FC = () => {
     }
   };
 
-  /**
-   *
-   */
   const handleProfileAccount = () => {
     Alert.alert(
       "Account",
