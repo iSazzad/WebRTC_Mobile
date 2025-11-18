@@ -1,4 +1,3 @@
-// DashboardScreen.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   mediaDevices,
@@ -11,25 +10,46 @@ import SocketIOClient, { Socket } from "socket.io-client";
 import InCallManager from "react-native-incall-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
-
-// Components
-import JoinScreen from "../components/JoinScreen";
-import OutgoingCallScreen from "../components/OutgoingCallScreen";
-import IncomingCallScreen from "../components/IncomingCallScreen";
-import WebrtcRoomScreen from "../components/WebrtcRoomScreen";
+import { useFocusEffect } from "@react-navigation/native";
 import { ICE_SERVERS, SIGNAL_URL } from "../config/webrtc";
 import { UserModel } from "../api/user";
-import EditProfileScreen from "../components/EditProfileScreen";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
-type CallState =
+export type CallState =
   | "UPDATE_USER"
   | "JOIN"
   | "OUTGOING_CALL"
   | "INCOMING_CALL"
   | "WEBRTC_ROOM";
 
-const DashboardScreen: React.FC = () => {
+export interface UseWebRTCCallResult {
+  callerId: string | null;
+  callState: CallState;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  localCallType: "audio" | "video" | null;
+  remoteCallType: "audio" | "video" | null;
+  micEnabled: boolean;
+  cameraEnabled: boolean;
+  speakerEnabled: boolean;
+  callTime: Date | null;
+  userDetail?: UserModel;
+  otherUserId: string | null;
+
+  // actions
+  setOtherUserId: (id: string | null) => void;
+  updateUserDetails: (userDetails: UserModel) => void;
+  startCall: (type: "audio" | "video") => Promise<void>;
+  acceptCall: () => Promise<void>;
+  leaveCall: () => void;
+  toggleMic: () => void;
+  toggleCamera: () => Promise<void>;
+  switchCamera: () => void;
+  toggleSpeaker: () => void;
+  goToUpdateUser: () => void;
+  goToJoin: () => void;
+}
+
+export const useWebRTCCall = (): UseWebRTCCallResult => {
   const [callerId, setCallerId] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("UPDATE_USER");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -49,18 +69,15 @@ const DashboardScreen: React.FC = () => {
   // Keep a ref of callState so event handlers always see the latest value
   const callStateRef = useRef<CallState>("UPDATE_USER");
 
-  const otherUserId = useRef<string | null>(null);
+  const otherUserIdRef = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
   const socket = useRef<Socket | null>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
-
-  const navigation = useNavigation();
   const remoteCandidates = useRef<RTCIceCandidate[]>([]);
   const makingOffer = useRef(false);
   // suppress automatic onnegotiationneeded when doing manual renegotiation
   const renegotiationInProgress = useRef(false);
 
-  // keep callStateRef in sync with callState for use in RTC event handlers
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
@@ -70,26 +87,27 @@ const DashboardScreen: React.FC = () => {
     const newPc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
     newPc.ontrack = (event: any) => {
-      console.log("ontrack event kind=", event.track && event.track.kind);
       setRemoteStream((prev: any) => {
-        // Always create a new MediaStream instance so React state updates and UI re-renders
         if (prev) {
-          const existing =
-            prev.getTracks && typeof prev.getTracks === "function"
-              ? prev.getTracks()
-              : [];
-          const tracks = [...existing, event.track];
-          return new MediaStream(tracks as any);
+          try {
+            prev.addTrack(event.track);
+          } catch (err) {
+            const ms = new MediaStream(prev.getTracks());
+            ms.addTrack(event.track);
+            return ms;
+          }
+          return prev;
+        } else {
+          return new MediaStream([event.track]);
         }
-        return new MediaStream([event.track]);
       });
     };
 
     newPc.onicecandidate = (event: any) => {
       if (!event.candidate) return;
-      if (socket.current && otherUserId.current) {
+      if (socket.current && otherUserIdRef.current) {
         socket.current.emit("ICEcandidate", {
-          calleeId: otherUserId.current,
+          calleeId: otherUserIdRef.current,
           rtcMessage: event.candidate,
         });
       }
@@ -102,9 +120,9 @@ const DashboardScreen: React.FC = () => {
         try {
           const offer = await newPc.createOffer({ iceRestart: true });
           await newPc.setLocalDescription(offer);
-          if (socket.current && otherUserId.current) {
+          if (socket.current && otherUserIdRef.current) {
             socket.current.emit("call", {
-              calleeId: otherUserId.current,
+              calleeId: otherUserIdRef.current,
               rtcMessage: offer,
             });
           }
@@ -149,9 +167,9 @@ const DashboardScreen: React.FC = () => {
           offerToReceiveVideo: localCallType === "video",
         });
         await newPc.setLocalDescription(offer);
-        if (socket.current && otherUserId.current) {
+        if (socket.current && otherUserIdRef.current) {
           socket.current.emit("call", {
-            calleeId: otherUserId.current,
+            calleeId: otherUserIdRef.current,
             rtcMessage: offer,
           });
           setCallState("OUTGOING_CALL");
@@ -201,25 +219,182 @@ const DashboardScreen: React.FC = () => {
       query: { callerId },
     });
 
-    // const sock = socket.current;
-    socket.current;
+    const sock = socket.current;
+
+    // ---------- socket handlers ----------
+    const handleNewCall = (data: any) => {
+      remoteRTCMessage.current = data.rtcMessage;
+      otherUserIdRef.current = data.callerId;
+      try {
+        InCallManager.startRingtone("_DEFAULT_", [1000, 1000], "playback", 30);
+      } catch (err) {
+        console.warn("startRingtone failed:", err);
+      }
+      InCallManager.setSpeakerphoneOn(speakerEnabled);
+      setCallState("INCOMING_CALL");
+    };
+
+    const handleCallAnswered = async (data: any) => {
+      remoteRTCMessage.current = data.rtcMessage;
+      try {
+        if (pc.current && remoteRTCMessage.current) {
+          await pc.current.setRemoteDescription(
+            new RTCSessionDescription(remoteRTCMessage.current)
+          );
+          await processBufferedCandidates();
+          InCallManager.stopRingtone();
+
+          const hasVideo =
+            pc.current.remoteDescription?.sdp.includes("m=video");
+          const mediaType = hasVideo ? "video" : "audio";
+          setRemoteCallType(mediaType);
+
+          InCallManager.start({ media: mediaType });
+          setCallTime(new Date());
+          InCallManager.setForceSpeakerphoneOn(false);
+          setSpeakerEnabled(false);
+          InCallManager.setMicrophoneMute(false);
+          setCallState("WEBRTC_ROOM");
+        }
+      } catch (err) {
+        console.error("Error setting remote description on callAnswered:", err);
+      }
+    };
+
+    const handleICEcandidate = async (data: any) => {
+      const message = data?.rtcMessage;
+      if (!message) return;
+      try {
+        const candidateObj = new RTCIceCandidate(message);
+        if (!pc.current?.remoteDescription) {
+          remoteCandidates.current.push(candidateObj);
+          return;
+        }
+        await pc.current?.addIceCandidate(candidateObj);
+      } catch (err) {
+        console.error("Failed to add ICE candidate:", err);
+      }
+    };
+
+    const handleCallCanceled = () => {
+      InCallManager.stopRingtone();
+      setCallState("JOIN");
+      otherUserIdRef.current = null;
+      remoteRTCMessage.current = null;
+    };
+
+    const handleCallRejected = () => {
+      setCallState("JOIN");
+      InCallManager.stopRingtone();
+      Alert.alert("Call Rejected", "The other user declined your call.");
+      otherUserIdRef.current = null;
+      remoteRTCMessage.current = null;
+    };
+
+    const handleCallEnded = () => {
+      Alert.alert("Call Ended", "The other user has disconnected.");
+      InCallManager.stop();
+      setCallState("JOIN");
+      setRemoteStream(null);
+      try {
+        pc.current?.close();
+      } catch (e) {}
+      createNewPeerConnection();
+    };
+
+    // --- Video upgrade specific handlers ---
+    const handleRequestMediaUpgrade = (data: any) => {
+      const { callerId: fromCaller, type } = data;
+      // Show a prompt to accept/reject
+      Alert.alert(
+        "Video request",
+        `${fromCaller} wants to switch to video. Accept?`,
+        [
+          {
+            text: "Reject",
+            style: "cancel",
+            onPress: () => {
+              sock.emit("rejectMediaChange", { callerId: fromCaller, type });
+            },
+          },
+          {
+            text: "Accept",
+            onPress: async () => {
+              try {
+                // Ensure our own camera is enabled on the callee side
+                let stream = localStream;
+                if (!stream || stream.getVideoTracks().length === 0) {
+                  stream = await getLocalMedia(type);
+                  setLocalStream(stream);
+                  setLocalCallType(type);
+                  setCameraEnabled(type === "video");
+                }
+
+                if (pc.current && stream) {
+                  stream.getTracks().forEach((track) => {
+                    const alreadyAdded = pc
+                      .current!.getSenders()
+                      .some((s) => s.track && s.track.id === track.id);
+                    if (!alreadyAdded) {
+                      pc.current!.addTrack(track, stream!);
+                    }
+                  });
+                }
+
+                // Inform caller we accept; caller will drive renegotiation
+                sock.emit("approveMediaChange", {
+                  callerId: fromCaller,
+                  type,
+                });
+              } catch (err) {
+                console.error(
+                  "Error enabling local video on upgrade accept:",
+                  err
+                );
+                Alert.alert(
+                  "Camera error",
+                  "Unable to enable your camera for the video call."
+                );
+                sock.emit("rejectMediaChange", { callerId: fromCaller, type });
+              }
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    };
+
+    const handleApproveMediaUpgrade = async (data: any) => {
+      // The callee approved — caller should start manual renegotiation upgrade
+      // Caller will create a manual offer and send it as a renegotiation offer
+      console.log("video upgrade approved by", data.calleeId);
+      await upgradeToVideo(data.calleeId);
+    };
+
+    const handleRejectMediaUpgrade = (data: any) => {
+      // callee rejected
+      Alert.alert(
+        "Video request denied",
+        "The other user declined video upgrade."
+      );
+    };
 
     // Attach listeners
-    socket.current.on("newCall", handleNewCall);
-    socket.current.on("callAnswered", handleCallAnswered);
-    socket.current.on("ICEcandidate", handleICEcandidate);
-    socket.current.on("callCanceled", handleCallCanceled);
-    socket.current.on("callRejected", handleCallRejected);
-    socket.current.on("callEnded", handleCallEnded);
+    sock.on("newCall", handleNewCall);
+    sock.on("callAnswered", handleCallAnswered);
+    sock.on("ICEcandidate", handleICEcandidate);
+    sock.on("callCanceled", handleCallCanceled);
+    sock.on("callRejected", handleCallRejected);
+    sock.on("callEnded", handleCallEnded);
 
-    socket.current.on("incomingMediaChangeRequest", handleRequestMediaUpgrade);
-    socket.current.on("mediaChangeApproved", handleApproveMediaUpgrade);
-    socket.current.on("mediaChangeRejected", handleRejectMediaUpgrade);
-    socket.current.on("renegotiateOffer", handleRenegotiateOffer);
-    socket.current.on("renegotiateAnswer", handleRenegotiateAnswer);
+    sock.on("incomingMediaChangeRequest", handleRequestMediaUpgrade);
+    sock.on("mediaChangeApproved", handleApproveMediaUpgrade);
+    sock.on("mediaChangeRejected", handleRejectMediaUpgrade);
+    sock.on("renegotiateOffer", handleRenegotiateOffer);
+    sock.on("renegotiateAnswer", handleRenegotiateAnswer);
 
-    socket.current.on("connect", () => {
-      console.log("socket connected", socket.current?.id);
+    sock.on("connect", () => {
+      console.log("socket connected", sock.id);
     });
 
     // Keep device awake defaults
@@ -229,23 +404,20 @@ const DashboardScreen: React.FC = () => {
     InCallManager.setMicrophoneMute(false);
 
     return () => {
-      socket.current?.off("newCall", handleNewCall);
-      socket.current?.off("callAnswered", handleCallAnswered);
-      socket.current?.off("ICEcandidate", handleICEcandidate);
-      socket.current?.off("callCanceled", handleCallCanceled);
-      socket.current?.off("callRejected", handleCallRejected);
-      socket.current?.off("callEnded", handleCallEnded);
-      socket.current?.off(
-        "incomingMediaChangeRequest",
-        handleRequestMediaUpgrade
-      );
-      socket.current?.off("mediaChangeApproved", handleApproveMediaUpgrade);
-      socket.current?.off("mediaChangeRejected", handleRejectMediaUpgrade);
-      socket.current?.off("renegotiateOffer", handleRenegotiateOffer);
-      socket.current?.off("renegotiateAnswer", handleRenegotiateAnswer);
+      sock.off("newCall", handleNewCall);
+      sock.off("callAnswered", handleCallAnswered);
+      sock.off("ICEcandidate", handleICEcandidate);
+      sock.off("callCanceled", handleCallCanceled);
+      sock.off("callRejected", handleCallRejected);
+      sock.off("callEnded", handleCallEnded);
+      sock.off("incomingMediaChangeRequest", handleRequestMediaUpgrade);
+      sock.off("mediaChangeApproved", handleApproveMediaUpgrade);
+      sock.off("mediaChangeRejected", handleRejectMediaUpgrade);
+      sock.off("renegotiateOffer", handleRenegotiateOffer);
+      sock.off("renegotiateAnswer", handleRenegotiateAnswer);
 
       try {
-        socket.current?.disconnect();
+        sock.disconnect();
       } catch (e) {}
 
       try {
@@ -254,166 +426,7 @@ const DashboardScreen: React.FC = () => {
 
       InCallManager.stop();
     };
-  }, [callerId]);
-
-  // ---------- socket handlers ----------
-  const handleNewCall = (data: any) => {
-    remoteRTCMessage.current = data.rtcMessage;
-    otherUserId.current = data.callerId;
-    try {
-      InCallManager.startRingtone("_DEFAULT_", [1000, 1000], "playback", 30);
-    } catch (err) {
-      console.warn("startRingtone failed:", err);
-    }
-    InCallManager.setSpeakerphoneOn(speakerEnabled);
-    setCallState("INCOMING_CALL");
-  };
-
-  const handleCallAnswered = async (data: any) => {
-    remoteRTCMessage.current = data.rtcMessage;
-    try {
-      if (pc.current && remoteRTCMessage.current) {
-        await pc.current.setRemoteDescription(
-          new RTCSessionDescription(remoteRTCMessage.current)
-        );
-        await processBufferedCandidates();
-        InCallManager.stopRingtone();
-
-        const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
-        const mediaType = hasVideo ? "video" : "audio";
-        setRemoteCallType(mediaType);
-
-        InCallManager.start({ media: mediaType });
-        setCallTime(new Date());
-        InCallManager.setForceSpeakerphoneOn(false);
-        setSpeakerEnabled(false);
-        InCallManager.setMicrophoneMute(false);
-        setCallState("WEBRTC_ROOM");
-      }
-    } catch (err) {
-      console.error("Error setting remote description on callAnswered:", err);
-    }
-  };
-
-  const handleICEcandidate = async (data: any) => {
-    const message = data?.rtcMessage;
-    if (!message) return;
-    try {
-      const candidateObj = new RTCIceCandidate(message);
-      if (!pc.current?.remoteDescription) {
-        remoteCandidates.current.push(candidateObj);
-        return;
-      }
-      await pc.current?.addIceCandidate(candidateObj);
-    } catch (err) {
-      console.error("Failed to add ICE candidate:", err);
-    }
-  };
-
-  const handleCallCanceled = () => {
-    InCallManager.stopRingtone();
-    setCallState("JOIN");
-    otherUserId.current = null;
-    remoteRTCMessage.current = null;
-  };
-
-  const handleCallRejected = () => {
-    setCallState("JOIN");
-    InCallManager.stopRingtone();
-    Alert.alert("Call Rejected", "The other user declined your call.");
-    otherUserId.current = null;
-    remoteRTCMessage.current = null;
-  };
-
-  const handleCallEnded = () => {
-    Alert.alert("Call Ended", "The other user has disconnected.");
-    InCallManager.stop();
-    setCallState("JOIN");
-    setRemoteStream(null);
-    try {
-      pc.current?.close();
-    } catch (e) {}
-    createNewPeerConnection();
-  };
-
-  // --- Video upgrade specific handlers ---
-  const handleRequestMediaUpgrade = (data: any) => {
-    const { callerId: fromCaller } = data;
-    // Show a prompt to accept/reject
-    Alert.alert(
-      "Video request",
-      `${fromCaller} wants to switch to video. Accept?`,
-      [
-        {
-          text: "Reject",
-          style: "cancel",
-          onPress: () => {
-            socket.current?.emit("rejectMediaChange", { callerId: fromCaller });
-          },
-        },
-        {
-          text: "Accept",
-          onPress: async () => {
-            try {
-              // Ensure our own camera is enabled on the callee side
-              let stream = localStream;
-              if (!stream || stream.getVideoTracks().length === 0) {
-                stream = await getLocalMedia("video");
-                setLocalStream(stream);
-                setLocalCallType("video");
-                setCameraEnabled(true);
-              }
-
-              if (pc.current && stream) {
-                stream.getTracks().forEach((track) => {
-                  const alreadyAdded = pc
-                    .current!.getSenders()
-                    .some((s) => s.track && s.track.id === track.id);
-                  if (!alreadyAdded) {
-                    pc.current!.addTrack(track, stream!);
-                  }
-                });
-              }
-
-              // Inform caller we accept; caller will drive renegotiation
-              socket.current?.emit("approveMediaChange", {
-                callerId: fromCaller,
-              });
-            } catch (err) {
-              console.error(
-                "Error enabling local video on upgrade accept:",
-                err
-              );
-              Alert.alert(
-                "Camera error",
-                "Unable to enable your camera for the video call."
-              );
-              socket.current?.emit("rejectMediaChange", {
-                callerId: fromCaller,
-              });
-            }
-          },
-        },
-      ],
-      { cancelable: false }
-    );
-  };
-
-  const handleApproveMediaUpgrade = async (data: any) => {
-    // The callee approved — caller should start manual renegotiation upgrade
-    // Caller will create a manual offer and send it as a renegotiation offer
-    console.log("media change approved payload=", data);
-    const target = data?.calleeId || data?.to || otherUserId.current;
-    await upgradeToVideo(target);
-  };
-
-  const handleRejectMediaUpgrade = (data: any) => {
-    // callee rejected
-    Alert.alert(
-      "Video request denied",
-      "The other user declined video upgrade."
-    );
-  };
+  }, [callerId, speakerEnabled, localStream]);
 
   // ---------- Process buffered ICE candidates ----------
   const processBufferedCandidates = async () => {
@@ -433,10 +446,7 @@ const DashboardScreen: React.FC = () => {
   // ---------- Manual renegotiation handlers ----------
   // Callee: receives offer, sets remote, ensures local tracks, creates answer
   const handleRenegotiateOffer = async (data: any) => {
-    console.log("handleRenegotiateOffer data=", data);
-    const rtcMessage = data.rtcMessage || data.offer || data.sdp;
-    const callerId =
-      data.from || data.callerId || data.remoteId || data.remote || null;
+    const { from: callerId, rtcMessage } = data; // server forwarded { from, rtcMessage }
     try {
       if (!pc.current) return;
 
@@ -482,16 +492,6 @@ const DashboardScreen: React.FC = () => {
         remoteId: callerId,
         rtcMessage: answer,
       });
-
-      // Update UI: switch to video mode
-      try {
-        setRemoteCallType("video");
-        InCallManager.start({ media: "video" });
-        setCallTime((prev) => prev ?? new Date());
-        setCallState("WEBRTC_ROOM");
-      } catch (e) {
-        console.warn("failed to update UI after renegotiateAnswer", e);
-      }
     } catch (err) {
       console.error("handleRenegotiateOffer error", err);
     } finally {
@@ -501,27 +501,14 @@ const DashboardScreen: React.FC = () => {
 
   // Caller: receives answer and sets remote description
   const handleRenegotiateAnswer = async (data: any) => {
-    console.log("handleRenegotiateAnswer data=", data);
-    const rtcMessage = data.rtcMessage || data.answer || data.sdp;
-    const calleeId =
-      data.from || data.calleeId || data.remoteId || data.remote || null;
+    const { from: calleeId, rtcMessage } = data;
     try {
       if (!pc.current) return;
       await pc.current.setRemoteDescription(
         new RTCSessionDescription(rtcMessage)
       );
       await processBufferedCandidates();
-      // remote's tracks should now arrive — update UI to reflect video
-      try {
-        const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
-        const mediaType = hasVideo ? "video" : "audio";
-        setRemoteCallType(mediaType);
-        InCallManager.start({ media: mediaType });
-        setCallTime((prev) => prev ?? new Date());
-        setCallState("WEBRTC_ROOM");
-      } catch (e) {
-        console.warn("failed to update UI after renegotiateAnswer", e);
-      }
+      // remote's tracks should now arrive
     } catch (err) {
       console.error("handleRenegotiateAnswer error", err);
     }
@@ -547,11 +534,11 @@ const DashboardScreen: React.FC = () => {
 
   // ---------- initiate call ----------
   const startCall = async (type: "audio" | "video") => {
-    if (!socket.current || !otherUserId.current) {
+    if (!socket.current || !otherUserIdRef.current) {
       Alert.alert("Missing callee", "Set the ID of the user you want to call.");
       return;
     }
-    initiateCall(type);
+    await initiateCall(type);
   };
 
   const initiateCall = async (type: "audio" | "video") => {
@@ -595,7 +582,7 @@ const DashboardScreen: React.FC = () => {
         });
         await pc.current.setLocalDescription(offer);
         socket.current!.emit("call", {
-          calleeId: otherUserId.current,
+          calleeId: otherUserIdRef.current,
           rtcMessage: offer,
         });
         setCallState("OUTGOING_CALL");
@@ -638,7 +625,7 @@ const DashboardScreen: React.FC = () => {
       const answer = await pc.current.createAnswer();
       await pc.current.setLocalDescription(answer);
       socket.current.emit("answerCall", {
-        callerId: otherUserId.current,
+        callerId: otherUserIdRef.current,
         rtcMessage: answer,
       });
 
@@ -656,7 +643,7 @@ const DashboardScreen: React.FC = () => {
   // ---------- upgradeToVideo & downgradeToAudio ----------
   const upgradeToVideo = async (targetRemoteId?: string) => {
     if (!pc.current || !socket.current) return;
-    const remoteId = targetRemoteId ?? otherUserId.current;
+    const remoteId = targetRemoteId ?? otherUserIdRef.current;
     try {
       // 1) Prevent automatic onnegotiationneeded from firing
       renegotiationInProgress.current = true;
@@ -672,31 +659,22 @@ const DashboardScreen: React.FC = () => {
         return;
       }
 
-      // // Replace existing video sender or add track
-      // const videoSender = pc.current
-      //   .getSenders()
-      //   .find((s: any) => s.track && s.track.kind === "video");
-      // if (videoSender) {
-      //   await videoSender.replaceTrack(newVideoTrack);
-      // } else {
-      //   // prefer to replace audio sender if want simulcast; otherwise add
-      //   const audioSender = pc.current
-      //     .getSenders()
-      //     .find((s: any) => s.track && s.track.kind === "audio");
-      //   if (audioSender) {
-      //     await audioSender.replaceTrack(newVideoTrack as any);
-      //   } else {
-      //     pc.current.addTrack(newVideoTrack, camStream as any);
-      //   }
-      // }
-
+      // Replace existing video sender or add track
       const videoSender = pc.current
         .getSenders()
-        .find((s) => s.track && s.track.kind === "video");
+        .find((s: any) => s.track && s.track.kind === "video");
       if (videoSender) {
         await videoSender.replaceTrack(newVideoTrack);
       } else {
-        pc.current.addTrack(newVideoTrack, camStream as any);
+        // prefer to replace audio sender if want simulcast; otherwise add
+        const audioSender = pc.current
+          .getSenders()
+          .find((s: any) => s.track && s.track.kind === "audio");
+        if (audioSender) {
+          await audioSender.replaceTrack(newVideoTrack as any);
+        } else {
+          pc.current.addTrack(newVideoTrack, camStream as any);
+        }
       }
 
       // update local stream state (so UI shows local camera)
@@ -729,7 +707,7 @@ const DashboardScreen: React.FC = () => {
   };
 
   const downgradeToAudio = async () => {
-    if (!pc.current || !socket.current || !otherUserId.current) return;
+    if (!pc.current || !socket.current || !otherUserIdRef.current) return;
     try {
       renegotiationInProgress.current = true;
 
@@ -755,7 +733,7 @@ const DashboardScreen: React.FC = () => {
       await pc.current.setLocalDescription(offer);
 
       socket.current.emit("renegotiateOffer", {
-        remoteId: otherUserId.current,
+        remoteId: otherUserIdRef.current,
         rtcMessage: offer,
       });
     } catch (err) {
@@ -767,53 +745,43 @@ const DashboardScreen: React.FC = () => {
 
   // Called by user to request other party to accept video
   const requestVideoUpgrade = () => {
-    if (!socket.current || !otherUserId.current) return;
+    if (!socket.current || !otherUserIdRef.current) return;
     socket.current.emit("requestMediaChange", {
-      calleeId: otherUserId.current,
-      type: "audioToVideo",
+      calleeId: otherUserIdRef.current,
+      type: "video",
     });
   };
 
   // toggleCamera now requests/accepts appropriately
   const toggleCamera = async () => {
     if (!cameraEnabled) {
+      // currently audio-only -> request upgrade (request + wait for approval flow)
       requestVideoUpgrade();
+      // optionally show local UI that request is sent (toast/spinner)
     } else {
+      // currently video -> downgrade to audio immediately
       await downgradeToAudio();
-      if (socket.current && otherUserId.current) {
-        socket.current.emit("endVideo", { calleeId: otherUserId.current });
+      // notify other side optionally (not required if you want implicit)
+      if (socket.current && otherUserIdRef.current) {
+        socket.current.emit("endVideo", { calleeId: otherUserIdRef.current });
       }
     }
   };
 
-  // ---------- rest of helpers: process ICE, manual candidate ----------
-  const handleRemoteCandidateManually = async (ice: any) => {
-    if (!ice) return;
-    try {
-      const candidate = new RTCIceCandidate(ice);
-      if (!pc.current?.remoteDescription) {
-        remoteCandidates.current.push(candidate);
-      } else {
-        await pc.current?.addIceCandidate(candidate);
-      }
-    } catch (err) {
-      console.error("handleRemoteCandidateManually error:", err);
-    }
-  };
-
+  // ---------- rest of helpers ----------
   const stopLocalMedia = () => {
     localStream?.getTracks().forEach((t) => t.stop());
     setLocalStream(null);
   };
 
   const leaveCall = () => {
-    if (socket.current && otherUserId.current) {
+    if (socket.current && otherUserIdRef.current) {
       if (callState === "OUTGOING_CALL") {
-        socket.current.emit("cancelCall", { calleeId: otherUserId.current });
+        socket.current.emit("cancelCall", { calleeId: otherUserIdRef.current });
       } else if (callState === "INCOMING_CALL") {
-        socket.current.emit("rejectCall", { callerId: otherUserId.current });
+        socket.current.emit("rejectCall", { callerId: otherUserIdRef.current });
       } else if (callState === "WEBRTC_ROOM") {
-        socket.current.emit("endCall", { calleeId: otherUserId.current });
+        socket.current.emit("endCall", { calleeId: otherUserIdRef.current });
       }
     }
 
@@ -832,12 +800,12 @@ const DashboardScreen: React.FC = () => {
     stopLocalMedia();
     InCallManager.stop();
     InCallManager.stopRingtone();
-    otherUserId.current = null;
+    otherUserIdRef.current = null;
     remoteRTCMessage.current = null;
     createNewPeerConnection();
   };
 
-  // ---------- update user details & UI switch ----------
+  // ---------- update user details & helpers ----------
   const updateUserDetails = (userDetails: UserModel) => {
     if (userDetails.userId) {
       setCallerId(userDetails.userId);
@@ -846,97 +814,63 @@ const DashboardScreen: React.FC = () => {
     }
   };
 
-  /**
-   *
-   */
-  const handleProfileAccount = () => {
-    Alert.alert(
-      "Account",
-      undefined,
-      [
-        { text: "Edit Profile", onPress: () => setCallState("UPDATE_USER") },
-        {
-          text: "Logout",
-          onPress: async () => {
-            await AsyncStorage.removeItem("userDetails");
-            // @ts-ignore
-            navigation.goBack();
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ],
-      { cancelable: true }
-    );
+  const goToUpdateUser = () => {
+    setCallState("UPDATE_USER");
   };
 
-  // ---------- Render UI based on callState ----------
-  switch (callState) {
-    case "UPDATE_USER":
-      return (
-        <EditProfileScreen
-          onJoin={updateUserDetails}
-          user={userDetail!}
-          onBack={() => setCallState("JOIN")}
-        />
-      );
-    case "JOIN":
-      return (
-        <JoinScreen
-          callerId={callerId!}
-          onJoin={startCall}
-          onTapAccount={handleProfileAccount}
-          setOtherUserId={(id: string) => (otherUserId.current = id)}
-        />
-      );
-    case "OUTGOING_CALL":
-      return (
-        <OutgoingCallScreen
-          otherUserId={otherUserId.current}
-          onCancel={leaveCall}
-        />
-      );
-    case "INCOMING_CALL":
-      return (
-        <IncomingCallScreen
-          otherUserId={otherUserId.current}
-          onAccept={acceptCall}
-          onCancel={leaveCall}
-        />
-      );
-    case "WEBRTC_ROOM":
-      return (
-        <WebrtcRoomScreen
-          localStream={localStream}
-          otherUserId={otherUserId.current}
-          remoteStream={remoteStream}
-          localMicOn={micEnabled}
-          localWebcamOn={cameraEnabled}
-          callTime={callTime}
-          localCallType={localCallType}
-          remoteCallType={remoteCallType}
-          onLeave={leaveCall}
-          onToggleMic={() => {
-            const enabled = !micEnabled;
-            setMicEnabled(enabled);
-            localStream?.getAudioTracks().forEach((t) => (t.enabled = enabled));
-            InCallManager.setMicrophoneMute(!enabled);
-          }}
-          onToggleCamera={toggleCamera}
-          onSwitchCamera={() => {
-            localStream?.getVideoTracks().forEach((t: any) => {
-              if (typeof t._switchCamera === "function") t._switchCamera();
-            });
-          }}
-          localSpeakerOn={speakerEnabled}
-          onToggleSpeaker={() => {
-            InCallManager.setSpeakerphoneOn(!speakerEnabled);
-            setSpeakerEnabled(!speakerEnabled);
-          }}
-        />
-      );
-    default:
-      return null;
-  }
-};
+  const goToJoin = () => {
+    setCallState("JOIN");
+  };
 
-export default DashboardScreen;
+  const setOtherUserId = (id: string | null) => {
+    otherUserIdRef.current = id;
+  };
+
+  const toggleMic = () => {
+    const enabled = !micEnabled;
+    setMicEnabled(enabled);
+    localStream?.getAudioTracks().forEach((t) => {
+      t.enabled = enabled;
+    });
+    InCallManager.setMicrophoneMute(!enabled);
+  };
+
+  const toggleSpeaker = () => {
+    const next = !speakerEnabled;
+    InCallManager.setSpeakerphoneOn(next);
+    setSpeakerEnabled(next);
+  };
+
+  const switchCamera = () => {
+    localStream?.getVideoTracks().forEach((t: any) => {
+      if (typeof t._switchCamera === "function") t._switchCamera();
+    });
+  };
+
+  return {
+    callerId,
+    callState,
+    localStream,
+    remoteStream,
+    localCallType,
+    remoteCallType,
+    micEnabled,
+    cameraEnabled,
+    speakerEnabled,
+    callTime,
+    userDetail,
+    otherUserId: otherUserIdRef.current,
+
+    setOtherUserId,
+    updateUserDetails,
+    startCall,
+    acceptCall,
+    leaveCall,
+    toggleMic,
+    toggleCamera,
+    switchCamera,
+    toggleSpeaker,
+    goToUpdateUser,
+    goToJoin,
+  };
+};

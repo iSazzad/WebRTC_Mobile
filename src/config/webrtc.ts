@@ -16,4 +16,4 @@ export const ICE_SERVERS = [
 // const Prod_Vercel = "https://web-rtc-backend-tau.vercel.app";
 const Prod_Render = "https://webrtc-backend-wqs8.onrender.com";
 const Local = "http://192.168.1.164:3000";
-export const SIGNAL_URL = Prod_Render; // TODO: move to env/config
+export const SIGNAL_URL = Local; // TODO: move to env/config
