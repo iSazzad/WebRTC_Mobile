@@ -1,4 +1,5 @@
 import { SIGNAL_URL } from "../config/webrtc";
+import { getAsyncStorageValue } from "../utils/auth";
 
 export const API_BASE = `${SIGNAL_URL}/api`;
 export const REQUEST_TIMEOUT = 15000; // 15 seconds in milliseconds
@@ -21,13 +22,19 @@ export async function apiRequest<T = any>(
     body,
     timeout = REQUEST_TIMEOUT,
   } = opts;
+  // include Authorization header when token exists
+  const token = await getAsyncStorageValue("accessToken");
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   const fetchOpts: RequestInit = {
     method,
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      "cache-control": "no-cache",
+      ...authHeaders,
       ...headers,
-    },
+    } as any,
   };
 
   if (body != null) {

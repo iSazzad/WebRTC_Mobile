@@ -14,10 +14,12 @@ import Feather from "react-native-vector-icons/Feather";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { Color } from "../utils/colors";
+import { CallType } from "../screens/DashboardScreen";
 
 interface JoinScreenProps {
   callerId: string;
-  onJoin: (type: "audio" | "video") => void;
+  otherUserId: string;
+  onJoin: (type: CallType) => void;
   onTapAccount: () => void;
   setOtherUserId: (id: string) => void;
 }
@@ -25,6 +27,7 @@ interface JoinScreenProps {
 const JoinScreen: React.FC<JoinScreenProps> = ({
   callerId,
   onJoin,
+  otherUserId,
   onTapAccount,
   setOtherUserId,
 }) => {
@@ -123,6 +126,7 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
               placeholder="Enter Caller ID"
               keyboardType="number-pad"
               setValue={setOtherUserId}
+              value={otherUserId}
             />
 
             <View

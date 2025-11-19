@@ -27,6 +27,10 @@ export default class UserViewModel {
     return userApi.getUser();
   }
 
+   async getAllUsers() {
+    return userApi.getAllUsers();
+  }
+
   async getUserByEmail(email: string) {
     return userApi.getUserByEmail(email);
   }

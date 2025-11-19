@@ -16,8 +16,8 @@ interface WebrtcRoomScreenProps {
   otherUserId: string | null;
   localSpeakerOn: boolean;
   callTime: Date | null;
-  localCallType: 'audio' | 'video' | null;
-  remoteCallType: 'audio' | 'video' | null;
+  localCallType: "audio" | "video" | null;
+  remoteCallType: "audio" | "video" | null;
   localWebcamOn: boolean;
   onLeave: () => void;
   onToggleMic: () => void;
@@ -69,8 +69,13 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
     ).padStart(2, "0")}`;
   };
 
-  console.log("local type: ", localCallType, remoteStream);
-  console.log("remote type: ", remoteCallType);
+  console.log(
+    "local & remote type: ",
+    localCallType,
+    remoteCallType,
+    localWebcamOn
+  );
+  console.log("remote stream: ", remoteCallType, remoteStream);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -88,7 +93,7 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
             alignItems: "center",
           }}
         >
-          {remoteCallType && remoteStream ? (
+          {remoteCallType == "audio" ? (
             <Text style={{ color: "#FFF" }}>Talking with {otherUserId}</Text>
           ) : (
             <Text style={{ color: "#FFF" }}>Waiting for remote stream...</Text>
@@ -125,6 +130,7 @@ const WebrtcRoomScreen: React.FC<WebrtcRoomScreenProps> = ({
           mirror={!!(localCallType === "video" && localWebcamOn)}
         />
       )}
+
       {localCallType && localCallType == "video" && localStream && (
         <IconContainer
           style={[

@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest } from "./client";
 
 export interface UserCreatePayload {
@@ -48,6 +49,10 @@ export async function updateUser(payload: {}): Promise<
 
 export async function getUser(): Promise<CommonResponse<UserModel>> {
   return apiRequest<CommonResponse<UserModel>>(`/users`);
+}
+
+export async function getAllUsers(): Promise<CommonResponse<UserModel[]>> {
+  return apiRequest<CommonResponse<UserModel[]>>(`/users/all`);
 }
 
 export async function getUserByEmail(
