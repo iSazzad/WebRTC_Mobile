@@ -320,13 +320,13 @@ const DashboardScreen: React.FC = () => {
 
   const handleCallCanceled = () => {
     InCallManager.stopRingtone();
-    setCallState("JOIN");
+    setCallState("ALL_USERS");
     otherUserId.current = null;
     remoteRTCMessage.current = null;
   };
 
   const handleCallRejected = () => {
-    setCallState("JOIN");
+    setCallState("ALL_USERS");
     InCallManager.stopRingtone();
     Alert.alert("Call Rejected", "The other user declined your call.");
     otherUserId.current = null;
@@ -336,7 +336,7 @@ const DashboardScreen: React.FC = () => {
   const handleCallEnded = () => {
     Alert.alert("Call Ended", "The other user has disconnected.");
     InCallManager.stop();
-    setCallState("JOIN");
+    setCallState("ALL_USERS");
     setRemoteStream(null);
     try {
       pc.current?.close();
@@ -594,7 +594,7 @@ const DashboardScreen: React.FC = () => {
     setCallTime(null);
     setLocalCallType(null);
     setRemoteCallType(null);
-    setCallState("JOIN");
+    setCallState("ALL_USERS");
     stopLocalMedia();
     InCallManager.stop();
     InCallManager.stopRingtone();
@@ -608,7 +608,7 @@ const DashboardScreen: React.FC = () => {
     if (userDetails.userId) {
       setCallerId(userDetails.userId);
       setUserDetail(userDetails);
-      setCallState("JOIN");
+      setCallState("ALL_USERS");
     }
   };
 
@@ -642,7 +642,7 @@ const DashboardScreen: React.FC = () => {
         <EditProfileScreen
           onJoin={updateUserDetails}
           user={userDetail!}
-          onBack={() => setCallState("JOIN")}
+          onBack={() => setCallState("ALL_USERS")}
         />
       );
     case "ALL_USERS":
@@ -653,16 +653,6 @@ const DashboardScreen: React.FC = () => {
             startCall(type);
           }}
           onTapAccount={handleProfileAccount}
-        />
-      );
-    case "JOIN":
-      return (
-        <JoinScreen
-          callerId={callerId!}
-          otherUserId={otherUserId.current!}
-          onJoin={startCall}
-          onTapAccount={handleProfileAccount}
-          setOtherUserId={(id: string) => (otherUserId.current = id)}
         />
       );
     case "OUTGOING_CALL":

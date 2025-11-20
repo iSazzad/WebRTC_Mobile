@@ -8,6 +8,7 @@ import {
   ListRenderItem,
   Alert,
   ListRenderItemInfo,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -17,6 +18,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Color } from "../utils/colors";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { CallType } from "../screens/DashboardScreen";
+import JoinScreen from "./JoinScreen";
 
 type ContactListScreenProps = {
   onJoin: (user: UserModel, type: CallType) => void;
@@ -29,6 +31,8 @@ const ContactListScreen = ({
 }: ContactListScreenProps) => {
   const [users, setUsers] = React.useState<UserModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [newUser, setNewUser] = useState(false);
+  const [otherUserId, setOtherUserId] = useState("");
 
   const userViewModel = new UserViewModel();
 
@@ -93,7 +97,7 @@ const ContactListScreen = ({
         <View style={{ flexDirection: "row", gap: 5 }}>
           <TouchableOpacity
             onPress={() => {
-              //   onJoin(undefined, undefined);
+              setNewUser(true);
             }}
             style={styles.addBtn}
           >
@@ -112,6 +116,25 @@ const ContactListScreen = ({
         renderItem={renderItem}
         contentContainerStyle={{ paddingTop: 10 }}
       />
+      {newUser && (
+        <Modal animationType="slide" transparent={true} visible={newUser}>
+          <JoinScreen
+            onClose={() => setNewUser(false)}
+            callerId={""}
+            otherUserId={otherUserId}
+            onJoin={(type: CallType, id: string) => {
+              const item: UserModel = {
+                userId: id,
+                name: "",
+                email: "",
+                expiresIn: undefined,
+              };
+              onJoin(item, type);
+            }}
+            setOtherUserId={setOtherUserId}
+          />
+        </Modal>
+      )}
     </SafeAreaView>
   );
 };

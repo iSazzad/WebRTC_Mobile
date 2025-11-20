@@ -19,8 +19,8 @@ import { CallType } from "../screens/DashboardScreen";
 interface JoinScreenProps {
   callerId: string;
   otherUserId: string;
-  onJoin: (type: CallType) => void;
-  onTapAccount: () => void;
+  onJoin: (type: CallType, id: string) => void;
+  onClose: () => void;
   setOtherUserId: (id: string) => void;
 }
 
@@ -28,22 +28,16 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
   callerId,
   onJoin,
   otherUserId,
-  onTapAccount,
+  onClose,
   setOtherUserId,
 }) => {
-  const handleCopy = () => {
-    Clipboard.setString(callerId);
-    Alert.alert("Copied!", "Your Caller has been copied to clipboard.");
-  };
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{
         flex: 1,
-        backgroundColor: Color.ThemeMain,
+        backgroundColor: Color.BGGrey,
         justifyContent: "center",
-        paddingHorizontal: 24,
       }}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -51,11 +45,11 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
           style={{
             flex: 1,
             justifyContent: "center",
-            backgroundColor: Color.ThemeMain,
+            paddingHorizontal: 24,
           }}
         >
           <TouchableOpacity
-            onPress={onTapAccount}
+            onPress={onClose}
             style={{
               height: 44,
               width: 44,
@@ -66,59 +60,30 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
               marginTop: 16,
               position: "absolute",
               top: 50,
-              right: 0,
+              left: 16,
             }}
           >
-            <FontAwesome name="user-circle-o" size={24} color={"#FFF"} />
+            <Feather name="x" size={24} color={"#FFF"} />
           </TouchableOpacity>
 
           <View
             style={{
-              padding: 20,
-              backgroundColor: Color.PopUpBg,
-              justifyContent: "center",
-              alignItems: "center",
-              borderRadius: 14,
-            }}
-          >
-            <Text style={{ fontSize: 18, color: Color.TitleGrey }}>
-              Your Caller ID
-            </Text>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginTop: 12,
-                gap: 20,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 18,
-                  color: Color.White,
-                  letterSpacing: 6,
-                }}
-              >
-                {callerId}
-              </Text>
-              <TouchableOpacity style={{ padding: 5 }} onPress={handleCopy}>
-                <Feather name="copy" color={Color.White} size={20} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View
-            style={{
-              backgroundColor: Color.PopUpBg,
+              backgroundColor: Color.ThemeMain,
               padding: 40,
-              paddingVertical: 20,
-              marginTop: 16,
+              paddingVertical: 40,
+              // marginTop: 16,
               justifyContent: "center",
               borderRadius: 14,
               gap: 10,
             }}
           >
-            <Text style={{ fontSize: 18, color: Color.TitleGrey }}>
+            <Text
+              style={{
+                fontSize: 18,
+                color: Color.TitleGrey,
+                alignSelf: "center",
+              }}
+            >
               Enter call id of another user
             </Text>
 
@@ -138,11 +103,11 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
               }}
             >
               <TouchableOpacity
-                onPress={() => onJoin("audio")}
+                onPress={() => onJoin("audio", otherUserId)}
                 style={{
                   height: 50,
                   width: 50,
-                  backgroundColor: Color.ThemeMain,
+                  backgroundColor: Color.PopUpBg,
                   justifyContent: "center",
                   alignItems: "center",
                   borderRadius: 12,
@@ -152,11 +117,11 @@ const JoinScreen: React.FC<JoinScreenProps> = ({
                 <Feather name="phone-call" size={24} color={"#FFF"} />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => onJoin("video")}
+                onPress={() => onJoin("video", otherUserId)}
                 style={{
                   height: 50,
                   width: 50,
-                  backgroundColor: Color.ThemeMain,
+                  backgroundColor: Color.PopUpBg,
                   justifyContent: "center",
                   alignItems: "center",
                   borderRadius: 12,

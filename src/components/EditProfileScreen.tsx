@@ -16,6 +16,8 @@ import UserViewModel from "../viewmodels/UserViewModel";
 import { UserModel } from "../api/user";
 import { Color } from "../utils/colors";
 import { useFocusEffect } from "@react-navigation/native";
+import Feather from "react-native-vector-icons/Feather";
+import Clipboard from "@react-native-clipboard/clipboard";
 
 interface EditProfileScreenProps {
   onJoin: (userDetails: UserModel) => void;
@@ -36,6 +38,11 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
   const [isEmailConfirm, setIsEmailConfirm] = useState(false);
 
   const userViewModel = new UserViewModel();
+
+  const handleCopy = () => {
+    Clipboard.setString(user.userId);
+    Alert.alert("Copied!", "Your CallerId has been copied.");
+  };
 
   const handleUpdateUser = async () => {
     if (userName.trim() && userEmail.trim()) {
@@ -65,7 +72,7 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
         Alert.alert("Success", JSON.stringify(response.message).toString());
         setIsEmailConfirm(true);
       } else {
-        manageResponse(response);
+        // manageResponse(response);
       }
     } catch (err: any) {
       const errorMsg =
@@ -85,7 +92,6 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
         flex: 1,
         backgroundColor: Color.ThemeMain,
         justifyContent: "center",
-        paddingHorizontal: 42,
       }}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -96,6 +102,60 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
             backgroundColor: Color.ThemeMain,
           }}
         >
+          <TouchableOpacity
+            onPress={onBack}
+            style={{
+              height: 44,
+              width: 44,
+              backgroundColor: Color.PopUpBg,
+              justifyContent: "center",
+              alignItems: "center",
+              borderRadius: 30,
+              marginTop: 16,
+              position: "absolute",
+              top: 50,
+              left: 16,
+            }}
+          >
+            <Feather name="x" size={24} color={"#FFF"} />
+          </TouchableOpacity>
+
+          <View
+            style={{
+              padding: 20,
+              backgroundColor: Color.PopUpBg,
+              justifyContent: "center",
+              alignItems: "center",
+              borderRadius: 14,
+              marginHorizontal: 20,
+            }}
+          >
+            <Text style={{ fontSize: 18, color: Color.TitleGrey }}>
+              Your Caller ID
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: 12,
+                gap: 20,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  color: Color.White,
+                  letterSpacing: 6,
+                }}
+              >
+                {user.userId}
+              </Text>
+              <TouchableOpacity style={{ padding: 5 }} onPress={handleCopy}>
+                <Feather name="copy" color={Color.White} size={20} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Create New User Form */}
           <View
             style={{
@@ -105,6 +165,7 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
               marginTop: 25,
               justifyContent: "center",
               borderRadius: 14,
+              marginHorizontal: 42,
             }}
           >
             <Text style={{ fontSize: 18, color: "#D0D4DD", marginBottom: 16 }}>
@@ -147,22 +208,6 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
                   {"Update"}
                 </Text>
               )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={onBack}
-              style={{
-                backgroundColor: "transparent",
-                justifyContent: "center",
-                alignItems: "center",
-                borderRadius: 12,
-                marginTop: 15,
-                paddingVertical: 10,
-              }}
-            >
-              <Text style={{ fontSize: 16, color: "#fff", fontWeight: "600" }}>
-                {"Back"}
-              </Text>
             </TouchableOpacity>
           </View>
         </View>

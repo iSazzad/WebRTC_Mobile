@@ -4,4 +4,5 @@ export const Color = {
   TextBlack: "#1A1C22",
   White: "#fff",
   TitleGrey: "#D0D4DD",
+  BGGrey: "#00000030",
 };
