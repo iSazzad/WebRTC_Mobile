@@ -11,9 +11,9 @@ import SocketIOClient, { Socket } from "socket.io-client";
 import InCallManager from "react-native-incall-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
+import uuid from "react-native-uuid";
 
 // Components
-import JoinScreen from "../components/JoinScreen";
 import OutgoingCallScreen from "../components/OutgoingCallScreen";
 import IncomingCallScreen from "../components/IncomingCallScreen";
 import WebrtcRoomScreen from "../components/WebrtcRoomScreen";
@@ -22,6 +22,8 @@ import { UserModel } from "../api/user";
 import EditProfileScreen from "../components/EditProfileScreen";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import ContactListScreen from "../components/ContactListScreen";
+import inCallManager from "react-native-incall-manager";
+import RNCallKeep from "react-native-callkeep";
 
 type CallState =
   | "UPDATE_USER"
@@ -48,6 +50,7 @@ const DashboardScreen: React.FC = () => {
 
   // Keep a ref of callState so event handlers always see the latest value
   const callStateRef = useRef<CallState>("ALL_USERS");
+  const deviceUUID = uuid.v4();
 
   const otherUserId = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
@@ -187,6 +190,32 @@ const DashboardScreen: React.FC = () => {
     }, [])
   );
 
+  // ---------- CallKeep setup ----------
+  useEffect(() => {
+    setupCallKeep();
+  }, []);
+
+  const setupCallKeep = async () => {
+    const options = {
+      ios: {
+        appName: "WebRTCApp",
+      },
+      android: {
+        alertTitle: "Permissions required",
+        alertDescription:
+          "This application needs to access your phone accounts",
+        cancelButton: "Cancel",
+        okButton: "ok",
+        additionalPermissions: [],
+      },
+    };
+
+    RNCallKeep.setup(options).then((accepted) => {
+      console.log("RNCallKeep setup completed:", accepted);
+    });
+    await RNCallKeep.setAvailable(true);
+  };
+
   // ---------- Socket & PC setup ----------
   useEffect(() => {
     if (!callerId) return;
@@ -254,6 +283,25 @@ const DashboardScreen: React.FC = () => {
     };
   }, [callerId]);
 
+  useEffect(() => {
+    const onAnswerCall = (data: any) => {
+      acceptCall();
+    };
+
+    const onEndCall = (data: any) => {
+      socket.current?.emit("rejectCall", { callerId: otherUserId.current });
+      leaveCall();
+    };
+
+    RNCallKeep.addEventListener("answerCall", onAnswerCall);
+    RNCallKeep.addEventListener("endCall", onEndCall);
+
+    return () => {
+      RNCallKeep.removeEventListener("answerCall", onAnswerCall);
+      RNCallKeep.removeEventListener("endCall", onEndCall);
+    };
+  }, []);
+
   // ---------- socket handlers ----------
   const handleNewCall = (data: any) => {
     remoteRTCMessage.current = data.rtcMessage;
@@ -263,7 +311,18 @@ const DashboardScreen: React.FC = () => {
     } catch (err) {
       console.warn("startRingtone failed:", err);
     }
-    InCallManager.setSpeakerphoneOn(speakerEnabled);
+    RNCallKeep.displayIncomingCall(
+      deviceUUID,
+      "Unknown Caller",
+      "WebRTCApp",
+      undefined,
+      true
+    );
+    InCallManager.setForceSpeakerphoneOn(true);
+    InCallManager.setSpeakerphoneOn(false);
+    setSpeakerEnabled(true);
+
+    InCallManager.vibrate = true;
     setRemoteCallType(data.type);
     setLocalCallType(data.type);
     setCameraEnabled(data.type === "video");
@@ -274,27 +333,32 @@ const DashboardScreen: React.FC = () => {
     remoteRTCMessage.current = data.rtcMessage;
     try {
       if (pc.current && remoteRTCMessage.current) {
+        InCallManager.stopRingback();
+
         await pc.current.setRemoteDescription(
           new RTCSessionDescription(remoteRTCMessage.current)
         );
         await processBufferedCandidates();
-        InCallManager.stopRingtone();
 
         console.log(
           "pc.current.remoteDescription?.sdp: ",
           pc.current.remoteDescription?.sdp
         );
 
-        // const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
-        // const mediaType = hasVideo ? "video" : "audio";
         setRemoteCallType(data.type);
         setCameraEnabled(data.type === "video");
         setLocalCallType(data.type);
 
         InCallManager.start({ media: "video" });
         setCallTime(new Date());
-        InCallManager.setForceSpeakerphoneOn(false);
-        setSpeakerEnabled(false);
+        if (data.type === "video") {
+          InCallManager.setForceSpeakerphoneOn(true);
+          setSpeakerEnabled(true);
+        } else {
+          InCallManager.setForceSpeakerphoneOn(false);
+          InCallManager.setSpeakerphoneOn(false);
+          setSpeakerEnabled(false);
+        }
         InCallManager.setMicrophoneMute(false);
         setCallState("WEBRTC_ROOM");
       }
@@ -319,6 +383,7 @@ const DashboardScreen: React.FC = () => {
   };
 
   const handleCallCanceled = () => {
+    InCallManager.stopRingback();
     InCallManager.stopRingtone();
     setCallState("ALL_USERS");
     otherUserId.current = null;
@@ -326,6 +391,7 @@ const DashboardScreen: React.FC = () => {
   };
 
   const handleCallRejected = () => {
+    InCallManager.stopRingback();
     setCallState("ALL_USERS");
     InCallManager.stopRingtone();
     Alert.alert("Call Rejected", "The other user declined your call.");
@@ -347,7 +413,7 @@ const DashboardScreen: React.FC = () => {
   const handleOtherUserCameraEnded = (data: any) => {
     const { calleeId: fromCaller } = data;
 
-    Alert.alert("User Camera Off", `${fromCaller} disable camera?`, [
+    Alert.alert("User Camera Off", `${fromCaller} disabled camera.`, [
       {
         text: "OK",
         onPress: async () => {
@@ -447,12 +513,22 @@ const DashboardScreen: React.FC = () => {
     setLocalCallType(type);
     setRemoteCallType(null);
     setCameraEnabled(type === "video");
+
+    if (type === "video") {
+      InCallManager.setForceSpeakerphoneOn(true);
+      InCallManager.setSpeakerphoneOn(false);
+      setSpeakerEnabled(true);
+    } else {
+      InCallManager.setForceSpeakerphoneOn(false);
+      InCallManager.setSpeakerphoneOn(false);
+      setSpeakerEnabled(false);
+    }
+
     if (!pc.current || pc.current.connectionState === "closed") {
       createNewPeerConnection();
     }
     try {
       if (!pc.current) return;
-
       let stream = localStream;
       if (!stream) {
         stream = await getLocalMedia();
@@ -476,6 +552,7 @@ const DashboardScreen: React.FC = () => {
       });
 
       if (!makingOffer.current) {
+        InCallManager.startRingback("_DEFAULT_");
         makingOffer.current = true;
         const offer = await pc.current.createOffer({
           offerToReceiveAudio: true,
@@ -535,8 +612,18 @@ const DashboardScreen: React.FC = () => {
 
       InCallManager.stopRingtone();
       InCallManager.start({ media: "video" });
-      InCallManager.setForceSpeakerphoneOn(false);
+
+      if (localCallType === "video") {
+        InCallManager.setForceSpeakerphoneOn(true);
+        setSpeakerEnabled(true);
+      } else {
+        InCallManager.setForceSpeakerphoneOn(false);
+        InCallManager.setSpeakerphoneOn(false);
+        setSpeakerEnabled(false);
+      }
+
       InCallManager.setMicrophoneMute(false);
+
       setCallTime(new Date());
       setCallState("WEBRTC_ROOM");
     } catch (err) {
@@ -696,7 +783,9 @@ const DashboardScreen: React.FC = () => {
           }}
           localSpeakerOn={speakerEnabled}
           onToggleSpeaker={() => {
-            InCallManager.setSpeakerphoneOn(!speakerEnabled);
+            inCallManager.setKeepScreenOn(!speakerEnabled);
+            // InCallManager.setSpeakerphoneOn(!speakerEnabled);
+            InCallManager.setForceSpeakerphoneOn(!speakerEnabled);
             setSpeakerEnabled(!speakerEnabled);
           }}
         />
