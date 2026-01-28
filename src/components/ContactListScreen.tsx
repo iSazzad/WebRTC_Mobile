@@ -23,11 +23,13 @@ import JoinScreen from "./JoinScreen";
 type ContactListScreenProps = {
   onJoin: (user: UserModel, type: CallType) => void;
   onTapAccount: () => void;
+  callerId?: string;
 };
 
 const ContactListScreen = ({
   onJoin,
   onTapAccount,
+  callerId,
 }: ContactListScreenProps) => {
   const [users, setUsers] = React.useState<UserModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,7 +41,7 @@ const ContactListScreen = ({
   useFocusEffect(
     useCallback(() => {
       getAllUsersAPI();
-    }, [])
+    }, []),
   );
   /**
    * Get All Users API
@@ -59,34 +61,45 @@ const ContactListScreen = ({
     }
   };
 
-  const renderItem = (item: ListRenderItemInfo<UserModel>) => (
-    <View style={styles.row}>
-      <View style={styles.userInfo}>
-        <Text style={styles.name}>{item.item.name}</Text>
-        <Text style={styles.number}>{item.item.userId}</Text>
-      </View>
+  const renderItem = (item: ListRenderItemInfo<UserModel>) => {
+    const isCallDisabled = item.item.userId === callerId;
+    return (
+      <View style={styles.row}>
+        <View style={styles.userInfo}>
+          <Text style={styles.name}>{item.item.name}</Text>
+          <Text style={styles.number}>{item.item.userId}</Text>
+        </View>
 
-      <View style={styles.buttons}>
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: "#11bb17ff" }]}
-          onPress={() => {
-            onJoin(item.item, "audio");
-          }}
-        >
-          <Ionicons name="call-outline" size={20} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.buttons}>
+          <TouchableOpacity
+            style={[
+              styles.btn,
+              { backgroundColor: isCallDisabled ? "#d3d3d3" : "#11bb17ff" },
+            ]}
+            onPress={() => {
+              onJoin(item.item, "audio");
+            }}
+            disabled={isCallDisabled}
+          >
+            <Ionicons name="call-outline" size={20} color="#fff" />
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: "#11bb17ff" }]}
-          onPress={() => {
-            onJoin(item.item, "video");
-          }}
-        >
-          <Ionicons name="videocam-outline" size={20} color="#fff" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.btn,
+              { backgroundColor: isCallDisabled ? "#d3d3d3" : "#11bb17ff" },
+            ]}
+            onPress={() => {
+              onJoin(item.item, "video");
+            }}
+            disabled={isCallDisabled}
+          >
+            <Ionicons name="videocam-outline" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>

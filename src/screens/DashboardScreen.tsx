@@ -10,7 +10,7 @@ import {
 import SocketIOClient, { Socket } from "socket.io-client";
 import InCallManager from "react-native-incall-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import uuid from "react-native-uuid";
 
 // Components
@@ -22,8 +22,8 @@ import { UserModel } from "../api/user";
 import EditProfileScreen from "../components/EditProfileScreen";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import ContactListScreen from "../components/ContactListScreen";
-import inCallManager from "react-native-incall-manager";
 import RNCallKeep from "react-native-callkeep";
+import inCallManager from "react-native-incall-manager";
 
 type CallState =
   | "UPDATE_USER"
@@ -50,7 +50,7 @@ const DashboardScreen: React.FC = () => {
 
   // Keep a ref of callState so event handlers always see the latest value
   const callStateRef = useRef<CallState>("ALL_USERS");
-  const deviceUUID = uuid.v4();
+  const callUUIDRef = useRef<string | null>(null);
 
   const otherUserId = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
@@ -187,7 +187,7 @@ const DashboardScreen: React.FC = () => {
         }
       };
       loadCallerId();
-    }, [])
+    }, []),
   );
 
   // ---------- CallKeep setup ----------
@@ -265,7 +265,7 @@ const DashboardScreen: React.FC = () => {
       socket.current?.off("callEnded", handleCallEnded);
       socket.current?.off(
         "incomingMediaChangeRequest",
-        handleRequestMediaUpgrade
+        handleRequestMediaUpgrade,
       );
       socket.current?.off("mediaChangeApproved", handleApproveMediaUpgrade);
       socket.current?.off("mediaChangeRejected", handleRejectMediaUpgrade);
@@ -284,23 +284,25 @@ const DashboardScreen: React.FC = () => {
   }, [callerId]);
 
   useEffect(() => {
-    const onAnswerCall = (data: any) => {
-      acceptCall();
-    };
-
-    const onEndCall = (data: any) => {
-      socket.current?.emit("rejectCall", { callerId: otherUserId.current });
-      leaveCall();
-    };
-
     RNCallKeep.addEventListener("answerCall", onAnswerCall);
     RNCallKeep.addEventListener("endCall", onEndCall);
 
     return () => {
-      RNCallKeep.removeEventListener("answerCall", onAnswerCall);
-      RNCallKeep.removeEventListener("endCall", onEndCall);
+      RNCallKeep.removeEventListener("answerCall");
+      RNCallKeep.removeEventListener("endCall");
     };
   }, []);
+
+  const onAnswerCall = (data: any) => {
+    acceptCall();
+  };
+
+  const onEndCall = (data: any) => {
+    if (callState == "ALL_USERS") {
+      socket.current?.emit("rejectCall", { callerId: otherUserId.current });
+    }
+    leaveCall();
+  };
 
   // ---------- socket handlers ----------
   const handleNewCall = (data: any) => {
@@ -311,12 +313,13 @@ const DashboardScreen: React.FC = () => {
     } catch (err) {
       console.warn("startRingtone failed:", err);
     }
+    callUUIDRef.current = data.callUUID;
     RNCallKeep.displayIncomingCall(
-      deviceUUID,
-      "Unknown Caller",
+      callUUIDRef.current!,
+      data.callerId,
       "WebRTCApp",
       undefined,
-      true
+      true,
     );
     InCallManager.setForceSpeakerphoneOn(true);
     InCallManager.setSpeakerphoneOn(false);
@@ -336,13 +339,13 @@ const DashboardScreen: React.FC = () => {
         InCallManager.stopRingback();
 
         await pc.current.setRemoteDescription(
-          new RTCSessionDescription(remoteRTCMessage.current)
+          new RTCSessionDescription(remoteRTCMessage.current),
         );
         await processBufferedCandidates();
 
         console.log(
           "pc.current.remoteDescription?.sdp: ",
-          pc.current.remoteDescription?.sdp
+          pc.current.remoteDescription?.sdp,
         );
 
         setRemoteCallType(data.type);
@@ -395,6 +398,9 @@ const DashboardScreen: React.FC = () => {
     setCallState("ALL_USERS");
     InCallManager.stopRingtone();
     Alert.alert("Call Rejected", "The other user declined your call.");
+    if (callUUIDRef.current) {
+      RNCallKeep.endCall(callUUIDRef.current);
+    }
     otherUserId.current = null;
     remoteRTCMessage.current = null;
   };
@@ -402,6 +408,9 @@ const DashboardScreen: React.FC = () => {
   const handleCallEnded = () => {
     Alert.alert("Call Ended", "The other user has disconnected.");
     InCallManager.stop();
+    if (callUUIDRef.current) {
+      RNCallKeep.endCall(callUUIDRef.current);
+    }
     setCallState("ALL_USERS");
     setRemoteStream(null);
     try {
@@ -454,7 +463,7 @@ const DashboardScreen: React.FC = () => {
           },
         },
       ],
-      { cancelable: false }
+      { cancelable: false },
     );
   };
 
@@ -468,7 +477,7 @@ const DashboardScreen: React.FC = () => {
   const handleRejectMediaUpgrade = (data: any) => {
     Alert.alert(
       "Video request denied",
-      "The other user declined video upgrade."
+      "The other user declined video upgrade.",
     );
   };
 
@@ -560,8 +569,10 @@ const DashboardScreen: React.FC = () => {
           voiceActivityDetection: true,
         });
         await pc.current.setLocalDescription(offer);
+        callUUIDRef.current = uuid.v4();
         socket.current!.emit("call", {
           calleeId: otherUserId.current,
+          callUUID: callUUIDRef.current,
           rtcMessage: offer,
           type,
         });
@@ -579,7 +590,7 @@ const DashboardScreen: React.FC = () => {
     if (!pc.current || !socket.current || !remoteRTCMessage.current) return;
     try {
       await pc.current.setRemoteDescription(
-        new RTCSessionDescription(remoteRTCMessage.current)
+        new RTCSessionDescription(remoteRTCMessage.current),
       );
 
       // const hasVideo = pc.current.remoteDescription?.sdp.includes("m=video");
@@ -687,6 +698,7 @@ const DashboardScreen: React.FC = () => {
     InCallManager.stopRingtone();
     otherUserId.current = null;
     remoteRTCMessage.current = null;
+    callUUIDRef.current = null;
     createNewPeerConnection();
   };
 
@@ -718,7 +730,7 @@ const DashboardScreen: React.FC = () => {
         },
         { text: "Cancel", style: "cancel" },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -739,6 +751,7 @@ const DashboardScreen: React.FC = () => {
             otherUserId.current = user.userId;
             startCall(type);
           }}
+          callerId={callerId!}
           onTapAccount={handleProfileAccount}
         />
       );
@@ -753,7 +766,12 @@ const DashboardScreen: React.FC = () => {
       return (
         <IncomingCallScreen
           otherUserId={otherUserId.current}
-          onAccept={acceptCall}
+          onAccept={() => {
+            if (!callUUIDRef.current) return;
+
+            RNCallKeep.answerIncomingCall(callUUIDRef.current!);
+            RNCallKeep.setCurrentCallActive(callUUIDRef.current!);
+          }}
           onCancel={leaveCall}
         />
       );
@@ -783,7 +801,7 @@ const DashboardScreen: React.FC = () => {
           }}
           localSpeakerOn={speakerEnabled}
           onToggleSpeaker={() => {
-            inCallManager.setKeepScreenOn(!speakerEnabled);
+            InCallManager.setKeepScreenOn(!speakerEnabled);
             // InCallManager.setSpeakerphoneOn(!speakerEnabled);
             InCallManager.setForceSpeakerphoneOn(!speakerEnabled);
             setSpeakerEnabled(!speakerEnabled);

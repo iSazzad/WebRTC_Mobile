@@ -1,12 +1,7 @@
-/**
- * @format
- */
-
-import { AppRegistry } from "react-native";
+import { AppRegistry, PermissionsAndroid, Platform } from "react-native";
 import App from "./App";
 import { name as appName } from "./app.json";
 import { registerGlobals } from "react-native-webrtc";
-import { PermissionsAndroid, Platform } from "react-native";
 import RNCallKeep from "react-native-callkeep";
 
 async function requestPermissions() {
@@ -14,23 +9,48 @@ async function requestPermissions() {
     await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.CAMERA,
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      // You may also want READ_PHONE_STATE etc., depending on CallKeep docs
     ]);
   }
 }
-requestPermissions();
-registerGlobals();
 
-const options = {
-  ios: {
-    appName: "CallApp",
-  },
-  android: {
-    alertTitle: "Permissions",
-    alertDescription: "Allow access to phone services",
-    cancelButton: "Cancel",
-    okButton: "OK",
-  },
-};
+async function initCallKeep() {
+  const options = {
+    ios: { appName: "WebRTCApp" },
+    android: {
+      alertTitle: "Permissions required",
+      alertDescription: "This application needs to access your phone accounts",
+      cancelButton: "Cancel",
+      okButton: "OK",
+      additionalPermissions: [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.CALL_PHONE",
+      ],
+      foregroundService: {
+        channelId: "com.rctwebcallapp.background",
+        channelName: "CallApp background service",
+        notificationTitle: "CallApp is running",
+        notificationIcon: "ic_launcher",
+      },
+    },
+  };
 
-RNCallKeep.setup(options);
+  try {
+    const accepted = await RNCallKeep.setup(options);
+    console.log("RNCallKeep setup completed:", Platform.OS, accepted);
+    await RNCallKeep.setAvailable(true);
+  } catch (e) {
+    console.error("RNCallKeep setup failed", e);
+  }
+}
+
+(async () => {
+  await requestPermissions();
+  await initCallKeep();
+  registerGlobals();
+})();
+
 AppRegistry.registerComponent(appName, () => App);
