@@ -90,7 +90,8 @@ android {
 dependencies {
     // React Native automatically sets the correct version
     implementation("com.facebook.react:react-android")
-    implementation ("androidx.core:core-telecom:1.0.0")
+    implementation ("androidx.core:core-telecom:1.0.1")
+    implementation project(':react-native-vector-icons')
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
@@ -98,3 +99,5 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

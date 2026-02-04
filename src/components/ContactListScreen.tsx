@@ -5,7 +5,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ListRenderItem,
   Alert,
   ListRenderItemInfo,
   Modal,
@@ -19,15 +18,18 @@ import { Color } from "../utils/colors";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { CallType } from "../screens/DashboardScreen";
 import JoinScreen from "./JoinScreen";
+import Avatar from "./ui/Avatar";
 
 type ContactListScreenProps = {
   onJoin: (user: UserModel, type: CallType) => void;
+  onTapUser: (user: UserModel) => void;
   onTapAccount: () => void;
   callerId?: string;
 };
 
 const ContactListScreen = ({
   onJoin,
+  onTapUser,
   onTapAccount,
   callerId,
 }: ContactListScreenProps) => {
@@ -64,13 +66,20 @@ const ContactListScreen = ({
   const renderItem = (item: ListRenderItemInfo<UserModel>) => {
     const isCallDisabled = item.item.userId === callerId;
     return (
-      <View style={styles.row}>
-        <View style={styles.userInfo}>
-          <Text style={styles.name}>{item.item.name}</Text>
-          <Text style={styles.number}>{item.item.userId}</Text>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.row}
+        onPress={() => onTapUser(item.item)}
+      >
+        <View style={styles.userContainer}>
+          <Avatar name={item.item.name} size={44} style={{ marginRight: 12 }} />
+          <View style={styles.userInfo}>
+            <Text style={styles.name}>{item.item.name}</Text>
+            <Text style={styles.number}>{item.item.userId}</Text>
+          </View>
         </View>
 
-        <View style={styles.buttons}>
+        {/* <View style={styles.buttons}>
           <TouchableOpacity
             style={[
               styles.btn,
@@ -96,8 +105,9 @@ const ContactListScreen = ({
           >
             <Ionicons name="videocam-outline" size={20} color="#fff" />
           </TouchableOpacity>
-        </View>
-      </View>
+        </View> */}
+        <Ionicons name="chevron-forward" size={20} color={Color.White} />
+      </TouchableOpacity>
     );
   };
 
@@ -188,6 +198,11 @@ const styles = StyleSheet.create({
 
   userInfo: {
     flex: 1,
+  },
+  userContainer: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   name: {

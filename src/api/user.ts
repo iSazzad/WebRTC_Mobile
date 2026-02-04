@@ -12,6 +12,7 @@ export interface UserModel {
   name: string;
   email: string;
   expiresIn: string | undefined;
+  imageUrl?: string | undefined;
 }
 
 export interface Tokens {

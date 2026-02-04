@@ -2,15 +2,18 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import CallAnswer from "../../asset/CallAnswer";
 import CallEnd from "../../asset/CallEnd";
+import { Color } from "../utils/colors";
 
 interface IncomingCallScreenProps {
   otherUserId: string | null;
+  otherUserName: string | null;
   onAccept: () => void;
   onCancel: () => void;
 }
 
 const IncomingCallScreen: React.FC<IncomingCallScreenProps> = ({
   otherUserId,
+  otherUserName,
   onAccept,
   onCancel,
 }) => (
@@ -32,11 +35,24 @@ const IncomingCallScreen: React.FC<IncomingCallScreenProps> = ({
       <Text
         style={{
           fontSize: 24,
-          marginTop: 12,
-          color: "#ffff",
+          fontWeight: "500",
+          color: Color.ThemeMain,
+          lineHeight: 30,
+          letterSpacing: 6,
+          textAlign: "center",
         }}
       >
-        {otherUserId} is calling..
+        {`${otherUserName}\n${otherUserId}`}
+      </Text>
+      <Text
+        style={{
+          fontSize: 14,
+          marginTop: 12,
+          fontWeight: "400",
+          color: Color.TitleGrey,
+        }}
+      >
+        is calling..
       </Text>
     </View>
     <View

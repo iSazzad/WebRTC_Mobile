@@ -7,5 +7,16 @@
   "exclude": [
     "**/node_modules",
     "**/Pods"
-  ]
+  ],
+  "compilerOptions": {
+    "lib": [
+      "es2017",
+      "dom"
+    ],
+    "types": [
+      "react",
+      "react-native"
+    ],
+    "skipLibCheck": true
+  }
 }

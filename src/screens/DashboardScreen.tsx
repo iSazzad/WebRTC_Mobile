@@ -1,5 +1,5 @@
 // DashboardScreen.tsx
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { use, useCallback, useEffect, useRef, useState } from "react";
 import {
   mediaDevices,
   RTCPeerConnection,
@@ -23,21 +23,16 @@ import EditProfileScreen from "../components/EditProfileScreen";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import ContactListScreen from "../components/ContactListScreen";
 import RNCallKeep from "react-native-callkeep";
-import inCallManager from "react-native-incall-manager";
-
-type CallState =
-  | "UPDATE_USER"
-  | "ALL_USERS"
-  | "JOIN"
-  | "OUTGOING_CALL"
-  | "INCOMING_CALL"
-  | "WEBRTC_ROOM";
+import ChatScreen from "../components/ChatScreen";
+import { ScreenState } from "../utils/enums";
 
 export type CallType = "audio" | "video" | null;
 
 const DashboardScreen: React.FC = () => {
   const [callerId, setCallerId] = useState<string | null>(null);
-  const [callState, setCallState] = useState<CallState>("ALL_USERS");
+  const [callState, setCallState] = useState<ScreenState>(
+    ScreenState.ALL_USERS,
+  );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [localCallType, setLocalCallType] = useState<CallType>(null);
   const [remoteCallType, setRemoteCallType] = useState<CallType>(null);
@@ -49,10 +44,12 @@ const DashboardScreen: React.FC = () => {
   const [userDetail, setUserDetail] = useState<UserModel>();
 
   // Keep a ref of callState so event handlers always see the latest value
-  const callStateRef = useRef<CallState>("ALL_USERS");
+  const callStateRef = useRef<ScreenState>(ScreenState.ALL_USERS);
   const callUUIDRef = useRef<string | null>(null);
 
+  const otherUserDetail = useRef<UserModel | null>(null);
   const otherUserId = useRef<string | null>(null);
+  const otherUserName = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
   const socket = useRef<Socket | null>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
@@ -108,7 +105,10 @@ const DashboardScreen: React.FC = () => {
           if (socket.current && otherUserId.current) {
             socket.current.emit("call", {
               calleeId: otherUserId.current,
+              callUUID: callUUIDRef.current,
+              calleeName: userDetail?.name || `${otherUserId.current}`,
               rtcMessage: offer,
+              type: localCallType,
             });
           }
           return;
@@ -155,9 +155,12 @@ const DashboardScreen: React.FC = () => {
         if (socket.current && otherUserId.current) {
           socket.current.emit("call", {
             calleeId: otherUserId.current,
+            callUUID: callUUIDRef.current,
+            calleeName: userDetail?.name || `${otherUserId.current}`,
             rtcMessage: offer,
+            type: localCallType,
           });
-          setCallState("OUTGOING_CALL");
+          setCallState(ScreenState.OUTGOING_CALL);
         }
       } catch (err) {
         console.error("createOffer error", err);
@@ -180,7 +183,7 @@ const DashboardScreen: React.FC = () => {
             const userData: UserModel = JSON.parse(user);
             setCallerId(userData.userId);
             setUserDetail(userData);
-            setCallState("ALL_USERS");
+            setCallState(ScreenState.ALL_USERS);
           }
         } catch (error) {
           console.error("Error loading callerId:", error);
@@ -298,7 +301,10 @@ const DashboardScreen: React.FC = () => {
   };
 
   const onEndCall = (data: any) => {
-    if (callState == "ALL_USERS") {
+    if (
+      callState == ScreenState.ALL_USERS ||
+      callState == ScreenState.INCOMING_CALL
+    ) {
       socket.current?.emit("rejectCall", { callerId: otherUserId.current });
     }
     leaveCall();
@@ -308,6 +314,7 @@ const DashboardScreen: React.FC = () => {
   const handleNewCall = (data: any) => {
     remoteRTCMessage.current = data.rtcMessage;
     otherUserId.current = data.callerId;
+    otherUserName.current = data.callerName;
     try {
       InCallManager.startRingtone("_DEFAULT_", [1000, 1000], "playback", 30);
     } catch (err) {
@@ -317,7 +324,7 @@ const DashboardScreen: React.FC = () => {
     RNCallKeep.displayIncomingCall(
       callUUIDRef.current!,
       data.callerId,
-      "WebRTCApp",
+      data.callerName,
       undefined,
       true,
     );
@@ -329,7 +336,7 @@ const DashboardScreen: React.FC = () => {
     setRemoteCallType(data.type);
     setLocalCallType(data.type);
     setCameraEnabled(data.type === "video");
-    setCallState("INCOMING_CALL");
+    setCallState(ScreenState.INCOMING_CALL);
   };
 
   const handleCallAnswered = async (data: any) => {
@@ -363,7 +370,7 @@ const DashboardScreen: React.FC = () => {
           setSpeakerEnabled(false);
         }
         InCallManager.setMicrophoneMute(false);
-        setCallState("WEBRTC_ROOM");
+        setCallState(ScreenState.WEBRTC_ROOM);
       }
     } catch (err) {
       console.error("Error setting remote description on callAnswered:", err);
@@ -388,14 +395,14 @@ const DashboardScreen: React.FC = () => {
   const handleCallCanceled = () => {
     InCallManager.stopRingback();
     InCallManager.stopRingtone();
-    setCallState("ALL_USERS");
+    setCallState(ScreenState.ALL_USERS);
     otherUserId.current = null;
     remoteRTCMessage.current = null;
   };
 
   const handleCallRejected = () => {
     InCallManager.stopRingback();
-    setCallState("ALL_USERS");
+    setCallState(ScreenState.ALL_USERS);
     InCallManager.stopRingtone();
     Alert.alert("Call Rejected", "The other user declined your call.");
     if (callUUIDRef.current) {
@@ -411,7 +418,7 @@ const DashboardScreen: React.FC = () => {
     if (callUUIDRef.current) {
       RNCallKeep.endCall(callUUIDRef.current);
     }
-    setCallState("ALL_USERS");
+    setCallState(ScreenState.ALL_USERS);
     setRemoteStream(null);
     try {
       pc.current?.close();
@@ -573,10 +580,11 @@ const DashboardScreen: React.FC = () => {
         socket.current!.emit("call", {
           calleeId: otherUserId.current,
           callUUID: callUUIDRef.current,
+          calleeName: userDetail?.name || `${otherUserId.current}`,
           rtcMessage: offer,
           type,
         });
-        setCallState("OUTGOING_CALL");
+        setCallState(ScreenState.OUTGOING_CALL);
       }
     } catch (err) {
       console.error("startCall/createOffer error:", err);
@@ -636,7 +644,7 @@ const DashboardScreen: React.FC = () => {
       InCallManager.setMicrophoneMute(false);
 
       setCallTime(new Date());
-      setCallState("WEBRTC_ROOM");
+      setCallState(ScreenState.WEBRTC_ROOM);
     } catch (err) {
       console.error("acceptCall error:", err);
     }
@@ -671,16 +679,15 @@ const DashboardScreen: React.FC = () => {
   };
 
   const leaveCall = () => {
-    if (socket.current && otherUserId.current) {
-      if (callState === "OUTGOING_CALL") {
-        socket.current.emit("cancelCall", { calleeId: otherUserId.current });
-      } else if (callState === "INCOMING_CALL") {
-        socket.current.emit("rejectCall", { callerId: otherUserId.current });
-      } else if (callState === "WEBRTC_ROOM") {
-        socket.current.emit("endCall", { calleeId: otherUserId.current });
+    if (otherUserId.current) {
+      if (callState === ScreenState.OUTGOING_CALL) {
+        socket.current?.emit("cancelCall", { calleeId: otherUserId.current });
+      } else if (callState === ScreenState.INCOMING_CALL) {
+        socket.current?.emit("rejectCall", { callerId: otherUserId.current });
+      } else if (callState === ScreenState.WEBRTC_ROOM) {
+        socket.current?.emit("endCall", { calleeId: otherUserId.current });
       }
     }
-
     try {
       pc.current
         ?.getSenders()
@@ -692,7 +699,7 @@ const DashboardScreen: React.FC = () => {
     setCallTime(null);
     setLocalCallType(null);
     setRemoteCallType(null);
-    setCallState("ALL_USERS");
+    setCallState(ScreenState.SPECIFIC_USER);
     stopLocalMedia();
     InCallManager.stop();
     InCallManager.stopRingtone();
@@ -707,7 +714,7 @@ const DashboardScreen: React.FC = () => {
     if (userDetails.userId) {
       setCallerId(userDetails.userId);
       setUserDetail(userDetails);
-      setCallState("ALL_USERS");
+      setCallState(ScreenState.ALL_USERS);
     }
   };
 
@@ -719,7 +726,10 @@ const DashboardScreen: React.FC = () => {
       "Account",
       undefined,
       [
-        { text: "Edit Profile", onPress: () => setCallState("UPDATE_USER") },
+        {
+          text: "Edit Profile",
+          onPress: () => setCallState(ScreenState.UPDATE_USER),
+        },
         {
           text: "Logout",
           onPress: async () => {
@@ -736,46 +746,71 @@ const DashboardScreen: React.FC = () => {
 
   // ---------- Render UI based on callState ----------
   switch (callState) {
-    case "UPDATE_USER":
+    case ScreenState.UPDATE_USER:
       return (
         <EditProfileScreen
           onJoin={updateUserDetails}
           user={userDetail!}
-          onBack={() => setCallState("ALL_USERS")}
+          onBack={() => setCallState(ScreenState.ALL_USERS)}
         />
       );
-    case "ALL_USERS":
+    case ScreenState.SPECIFIC_USER:
+      return (
+        <ChatScreen
+          callerId={callerId!}
+          user={otherUserDetail.current!}
+          onBack={() => setCallState(ScreenState.ALL_USERS)}
+          onCall={(type: CallType) => {
+            otherUserId.current = otherUserDetail.current!.userId;
+            otherUserName.current = otherUserDetail.current!.name;
+            startCall(type);
+          }}
+          socket={socket.current!}
+        />
+      );
+    case ScreenState.ALL_USERS:
       return (
         <ContactListScreen
+          onTapUser={(user: UserModel) => {
+            otherUserDetail.current = user;
+            setCallState(ScreenState.SPECIFIC_USER);
+          }}
           onJoin={(user, type: CallType) => {
             otherUserId.current = user.userId;
+            otherUserName.current = user.name;
             startCall(type);
           }}
           callerId={callerId!}
           onTapAccount={handleProfileAccount}
         />
       );
-    case "OUTGOING_CALL":
+    case ScreenState.OUTGOING_CALL:
       return (
         <OutgoingCallScreen
           otherUserId={otherUserId.current}
+          otherUserName={otherUserName.current}
           onCancel={leaveCall}
         />
       );
-    case "INCOMING_CALL":
+    case ScreenState.INCOMING_CALL:
       return (
         <IncomingCallScreen
           otherUserId={otherUserId.current}
+          otherUserName={otherUserName.current}
           onAccept={() => {
             if (!callUUIDRef.current) return;
 
             RNCallKeep.answerIncomingCall(callUUIDRef.current!);
             RNCallKeep.setCurrentCallActive(callUUIDRef.current!);
           }}
-          onCancel={leaveCall}
+          onCancel={() => {
+            if (!callUUIDRef.current) return;
+            RNCallKeep.endCall(callUUIDRef.current!);
+            leaveCall();
+          }}
         />
       );
-    case "WEBRTC_ROOM":
+    case ScreenState.WEBRTC_ROOM:
       return (
         <WebrtcRoomScreen
           localStream={localStream}
