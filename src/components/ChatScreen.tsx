@@ -10,6 +10,7 @@ import {
   Platform,
   ViewToken,
   ViewabilityConfigCallbackPair,
+  Alert,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
@@ -22,6 +23,7 @@ import { Color } from "../utils/colors";
 import { CallType } from "../screens/DashboardScreen";
 import Avatar from "./ui/Avatar";
 import { getDateHeader, isSameDay } from "../utils/helper";
+import { ChatListItem, ChatUser } from "../models/ChatListItem";
 
 interface Message {
   _id: string;
@@ -40,7 +42,7 @@ interface Message {
 }
 
 interface ChatScreenProps {
-  user: UserModel;
+  details: ChatListItem;
   onBack: () => void;
   onCall: (type: CallType) => void;
   socket: Socket;
@@ -48,7 +50,7 @@ interface ChatScreenProps {
 }
 
 export default function ChatScreen({
-  user,
+  details,
   onBack,
   onCall,
   socket,
@@ -70,9 +72,9 @@ export default function ChatScreen({
 
   /* ---------------- JOIN CHAT ---------------- */
   useEffect(() => {
-    if (!user.userId) return;
-    socket.emit("joinChat", { otherUserId: user.userId });
-  }, [user.userId]);
+    if (!details?.user?.userId) return;
+    socket.emit("joinChat", { chatUniqueId: details?.chatUniqueId });
+  }, [details?.user?.userId]);
 
   /* ---------------- SOCKET LISTENERS ---------------- */
   useEffect(() => {
@@ -80,7 +82,12 @@ export default function ChatScreen({
       page.current = 1;
       setMessages([]);
       setHasMore(true);
-      setChatUniqueId(data.chatUniqueId);
+      setChatUniqueId(details?.chatUniqueId);
+    });
+
+    socket.on("chatError", (data) => {
+      Alert.alert(data.message || "Failed to load chat");
+      handleBack();
     });
 
     socket.on("messagesList", (data) => {
@@ -95,7 +102,10 @@ export default function ChatScreen({
 
     socket.on("receiveMessage", (data) => {
       setMessages((prev) => processMessages([...prev, data.message]));
-      socket.emit("messageRead", { chatUniqueId, userId: callerId });
+      socket.emit("messageRead", {
+        chatUniqueId: data.message.chatUniqueId,
+        userId: data.message.senderId,
+      });
     });
 
     socket.on("readReceipt", () => {
@@ -108,11 +118,32 @@ export default function ChatScreen({
       );
     });
 
+    socket.on("deliveryReceipt", ({ messageId, userId }) => {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const isSameMessage = msg._id?.toString() === messageId.toString();
+          const notDeliveredYet = !msg.status?.deliveredAt;
+          if (isSameMessage && notDeliveredYet) {
+            return {
+              ...msg,
+              status: {
+                ...msg.status,
+                deliveredAt: new Date(),
+              },
+            };
+          }
+          return msg;
+        }),
+      );
+    });
+
     return () => {
       socket.off("chatReady");
+      socket.off("chatError");
       socket.off("messagesList");
       socket.off("receiveMessage");
       socket.off("readReceipt");
+      socket.off("deliveryReceipt");
     };
   }, []);
 
@@ -120,6 +151,11 @@ export default function ChatScreen({
     if (!chatUniqueId) return;
     fetchMessages(1);
   }, [chatUniqueId]);
+
+  const handleBack = () => {
+    socket.emit("leaveChat", { chatUniqueId });
+    onBack();
+  };
 
   /* ---------------- SEND MESSAGE ---------------- */
   const sendMessage = () => {
@@ -312,7 +348,7 @@ export default function ChatScreen({
 
               {isMe &&
                 (status === "unsend" ? (
-                  <Fontisto name="clock" size={14} color="#999" />
+                  <Fontisto name="clock" size={11} color="#999" />
                 ) : (
                   <MaterialIcons
                     name={status === "sent" ? "check" : "done-all"}
@@ -342,19 +378,19 @@ export default function ChatScreen({
 
           {/* HEADER */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={onBack}>
+            <TouchableOpacity onPress={handleBack}>
               <MaterialIcons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
 
             <Avatar
-              name={user.name}
-              imageUrl={user.imageUrl}
+              name={details.user?.name ?? ""}
+              imageUrl={details.user?.imageUrl ?? ""}
               size={40}
               style={{ marginHorizontal: 10 }}
             />
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.username}>{user.name}</Text>
+              <Text style={styles.username}>{details.user?.name}</Text>
               <Text style={styles.status}>Online</Text>
             </View>
 

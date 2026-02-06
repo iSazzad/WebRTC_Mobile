@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import Octicons from "react-native-vector-icons/Octicons";
 import { getAllUsers, UserModel } from "../api/user";
 import UserViewModel from "../viewmodels/UserViewModel";
 import { useFocusEffect } from "@react-navigation/native";
@@ -19,31 +20,48 @@ import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { CallType } from "../screens/DashboardScreen";
 import JoinScreen from "./JoinScreen";
 import Avatar from "./ui/Avatar";
+import SegmentedControl from "./ui/SegmentedControl";
+import { ChatListItem, ChatUser } from "../models/ChatListItem";
+import Feather from "react-native-vector-icons/Feather";
+import { InvitedUser } from "../models/InvitedUserItem";
+import UserItem from "./ui/UserItem";
 
 type ContactListScreenProps = {
   onJoin: (user: UserModel, type: CallType) => void;
-  onTapUser: (user: UserModel) => void;
+  onTapUser: (chatItem: ChatListItem) => void;
+  onTapAdd: (user: UserModel) => void;
   onTapAccount: () => void;
+  onTapInvite: (inviteUser: InvitedUser, isAccepted: boolean) => void;
   callerId?: string;
+  chatList: ChatListItem[];
+  invitedUsers: InvitedUser[];
+  reloadUserList: boolean;
 };
 
 const ContactListScreen = ({
   onJoin,
-  onTapUser,
   onTapAccount,
+  onTapInvite,
+  onTapUser,
+  onTapAdd,
   callerId,
+  chatList,
+  invitedUsers,
+  reloadUserList,
 }: ContactListScreenProps) => {
   const [users, setUsers] = React.useState<UserModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [newUser, setNewUser] = useState(false);
   const [otherUserId, setOtherUserId] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
+  const segments = ["Friends", "Request", "All Users"];
   const userViewModel = new UserViewModel();
 
   useFocusEffect(
     useCallback(() => {
       getAllUsersAPI();
-    }, []),
+    }, [reloadUserList]),
   );
   /**
    * Get All Users API
@@ -63,51 +81,20 @@ const ContactListScreen = ({
     }
   };
 
-  const renderItem = (item: ListRenderItemInfo<UserModel>) => {
-    const isCallDisabled = item.item.userId === callerId;
+  const renderItem = (
+    item: ListRenderItemInfo<UserModel | InvitedUser | ChatListItem>,
+  ) => {
+    const type =
+      selectedIndex === 0 ? "chat" : selectedIndex === 1 ? "invite" : "user";
     return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={styles.row}
-        onPress={() => onTapUser(item.item)}
-      >
-        <View style={styles.userContainer}>
-          <Avatar name={item.item.name} size={44} style={{ marginRight: 12 }} />
-          <View style={styles.userInfo}>
-            <Text style={styles.name}>{item.item.name}</Text>
-            <Text style={styles.number}>{item.item.userId}</Text>
-          </View>
-        </View>
-
-        {/* <View style={styles.buttons}>
-          <TouchableOpacity
-            style={[
-              styles.btn,
-              { backgroundColor: isCallDisabled ? "#d3d3d3" : "#11bb17ff" },
-            ]}
-            onPress={() => {
-              onJoin(item.item, "audio");
-            }}
-            disabled={isCallDisabled}
-          >
-            <Ionicons name="call-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.btn,
-              { backgroundColor: isCallDisabled ? "#d3d3d3" : "#11bb17ff" },
-            ]}
-            onPress={() => {
-              onJoin(item.item, "video");
-            }}
-            disabled={isCallDisabled}
-          >
-            <Ionicons name="videocam-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View> */}
-        <Ionicons name="chevron-forward" size={20} color={Color.White} />
-      </TouchableOpacity>
+      <UserItem
+        callerId={callerId}
+        type={type}
+        item={item.item}
+        onTapUser={onTapUser}
+        onTapInvite={onTapInvite}
+        onTapAdd={onTapAdd}
+      />
     );
   };
 
@@ -132,10 +119,23 @@ const ContactListScreen = ({
         </View>
       </View>
 
+      <SegmentedControl
+        segments={segments}
+        selectedIndex={selectedIndex}
+        onChange={setSelectedIndex}
+        style={{ marginHorizontal: 10, marginTop: 5 }}
+      />
+
       {/* List */}
       <FlatList
-        data={users}
-        keyExtractor={(item) => item.userId}
+        data={
+          selectedIndex == 0
+            ? chatList
+            : selectedIndex == 1
+            ? invitedUsers
+            : users
+        }
+        keyExtractor={(item, index) => String(index)}
         renderItem={renderItem}
         contentContainerStyle={{ paddingTop: 10 }}
       />
@@ -173,8 +173,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderColor: Color.White,
+    // borderBottomWidth: 1,
+    // borderColor: Color.White,
   },
 
   headerTitle: {
@@ -210,7 +210,11 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Color.White,
   },
-
+  count: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: Color.White,
+  },
   number: {
     fontSize: 14,
     color: Color.White,
@@ -226,6 +230,16 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countContainer: {
+    marginLeft: 10,
+    backgroundColor: "red",
+    borderRadius: 50,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 24,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -13,6 +13,8 @@ export interface UserModel {
   email: string;
   expiresIn: string | undefined;
   imageUrl?: string | undefined;
+  hasInvitation: boolean;
+  hasAcceptedInvitation: boolean;
 }
 
 export interface Tokens {
@@ -31,7 +33,7 @@ export interface CommonResponse<T> {
 }
 
 export async function createUser(
-  payload: UserCreatePayload | null
+  payload: UserCreatePayload | null,
 ): Promise<CommonResponse<CreateUserResponse>> {
   return apiRequest<CommonResponse<CreateUserResponse>>("/users", {
     method: "POST",
@@ -57,15 +59,15 @@ export async function getAllUsers(): Promise<CommonResponse<UserModel[]>> {
 }
 
 export async function getUserByEmail(
-  email: string
+  email: string,
 ): Promise<CommonResponse<CreateUserResponse>> {
   return apiRequest<CommonResponse<CreateUserResponse>>(
-    `/users/${encodeURIComponent(email)}`
+    `/users/${encodeURIComponent(email)}`,
   );
 }
 
 export async function sendOTPToUserEmail(
-  payload: UserCreatePayload | null
+  payload: UserCreatePayload | null,
 ): Promise<CommonResponse<{}>> {
   return apiRequest<CommonResponse<{}>>("/users/send-otp", {
     method: "POST",
@@ -74,7 +76,7 @@ export async function sendOTPToUserEmail(
 }
 
 export async function verifyOTPUserEmail(
-  payload: UserCreatePayload | null
+  payload: UserCreatePayload | null,
 ): Promise<CommonResponse<CreateUserResponse>> {
   return apiRequest<CommonResponse<CreateUserResponse>>("/users/verify-otp", {
     method: "POST",

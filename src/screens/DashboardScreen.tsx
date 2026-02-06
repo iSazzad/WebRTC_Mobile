@@ -25,6 +25,8 @@ import ContactListScreen from "../components/ContactListScreen";
 import RNCallKeep from "react-native-callkeep";
 import ChatScreen from "../components/ChatScreen";
 import { ScreenState } from "../utils/enums";
+import { ChatListItem, ChatUser } from "../models/ChatListItem";
+import { InvitedUser } from "../models/InvitedUserItem";
 
 export type CallType = "audio" | "video" | null;
 
@@ -38,16 +40,17 @@ const DashboardScreen: React.FC = () => {
   const [remoteCallType, setRemoteCallType] = useState<CallType>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
-  const [cameraEnabled, setCameraEnabled] = useState(false); // default false -> audio only
+  const [cameraEnabled, setCameraEnabled] = useState(false);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [callTime, setCallTime] = useState<Date | null>(null);
   const [userDetail, setUserDetail] = useState<UserModel>();
+  const [reloadUserList, setReloadUserList] = useState(false);
 
-  // Keep a ref of callState so event handlers always see the latest value
+  //Keep a ref of callState so event handlers always see the latest value
   const callStateRef = useRef<ScreenState>(ScreenState.ALL_USERS);
   const callUUIDRef = useRef<string | null>(null);
 
-  const otherUserDetail = useRef<UserModel | null>(null);
+  const chatUserDetail = useRef<ChatListItem | null>(null);
   const otherUserId = useRef<string | null>(null);
   const otherUserName = useRef<string | null>(null);
   const remoteRTCMessage = useRef<any>(null);
@@ -59,6 +62,9 @@ const DashboardScreen: React.FC = () => {
   const makingOffer = useRef(false);
   // suppress automatic onnegotiationneeded when doing manual renegotiation
   const renegotiationInProgress = useRef(false);
+
+  const [chatList, setChatList] = useState<ChatListItem[]>([]);
+  const [invitedUsers, setInvitedUsers] = useState<InvitedUser[]>([]);
 
   // keep callStateRef in sync with callState for use in RTC event handlers
   useEffect(() => {
@@ -233,8 +239,8 @@ const DashboardScreen: React.FC = () => {
       query: { callerId },
     });
 
-    // const sock = socket.current;
-    socket.current;
+    requestLastMessageAndList();
+    requestInvitedUsers();
 
     // Attach listeners
     socket.current.on("newCall", handleNewCall);
@@ -248,9 +254,13 @@ const DashboardScreen: React.FC = () => {
     socket.current.on("incomingMediaChangeRequest", handleRequestMediaUpgrade);
     socket.current.on("mediaChangeApproved", handleApproveMediaUpgrade);
     socket.current.on("mediaChangeRejected", handleRejectMediaUpgrade);
+    socket.current.on("chatListResponse", handleLastMessageAndList);
+    socket.current.on("chatListUpdate", requestLastMessageAndList);
+    socket.current.on("invitedUsersList", requestInvitedUsers);
+    socket.current?.on("invitedUsersUpdate", refreshData);
 
-    socket.current.on("connect", () => {
-      console.log("socket connected", socket.current?.id);
+    socket.current.on("connected", (data: any) => {
+      Alert.alert(`Connected to signaling server ${data}`);
     });
 
     // Keep device awake defaults
@@ -273,6 +283,11 @@ const DashboardScreen: React.FC = () => {
       socket.current?.off("mediaChangeApproved", handleApproveMediaUpgrade);
       socket.current?.off("mediaChangeRejected", handleRejectMediaUpgrade);
       socket.current?.off("endedVideo", handleOtherUserCameraEnded);
+      socket.current?.off("chatListResponse", handleLastMessageAndList);
+      socket.current?.off("chatListUpdate", requestLastMessageAndList);
+      socket.current?.off("invitedUsersList", requestInvitedUsers);
+      socket.current?.off("invitedUsersUpdate", refreshData);
+      socket.current?.off("connected", () => {});
 
       try {
         socket.current?.disconnect();
@@ -296,10 +311,87 @@ const DashboardScreen: React.FC = () => {
     };
   }, []);
 
+  // ---------- Socket event handlers ----------
+  const requestLastMessageAndList = (data?: any) => {
+    // alert(
+    //   `Requesting last message and chat list ${data?.messageId} ${data?.senderId} ${callerId}`,
+    // );
+    if (data && data.messageId && data.senderId && data.senderId !== callerId) {
+      socket.current?.emit("messageDelivered", {
+        messageId: data.messageId,
+        chatUniqueId: data.chatUniqueId,
+        senderId: data.senderId,
+      });
+    }
+    socket.current?.emit("lastMessageWithUsers", {});
+  };
+
+  const handleLastMessageAndList = (data: any) => {
+    if (!data.success) return;
+    setChatList(data.data);
+  };
+
+  // Invited users handler
+  const requestInvitedUsers = () => {
+    socket.current?.emit("invitedUsers", {}, handeleInvitedUsers);
+  };
+  const handeleInvitedUsers = (data: any) => {
+    if (!data.success) return;
+    setInvitedUsers(data.data);
+  };
+
+  const handeleInvitedUserRequest = (
+    inviteItem: InvitedUser,
+    isAccepted: boolean,
+  ) => {
+    if (isAccepted) {
+      socket.current?.emit(
+        "acceptInvitation",
+        {
+          invitationRequestId: inviteItem._id,
+        },
+        (response: { success: boolean; message?: string; data?: any }) => {
+          if (response.success) {
+            Alert.alert("Invite accepted");
+            refreshData();
+          } else {
+            Alert.alert(response.message || "Failed to accept invite");
+          }
+        },
+      );
+    } else {
+      socket.current?.emit(
+        "rejectInvitation",
+        {
+          invitationRequestId: inviteItem._id,
+        },
+        (response: { success: boolean; message?: string; data?: any }) => {
+          if (response.success) {
+            Alert.alert("Invite rejected");
+            refreshData();
+          } else {
+            Alert.alert(response.message || "Failed to reject invite");
+          }
+        },
+      );
+    }
+  };
+
+  const refreshData = () => {
+    requestLastMessageAndList();
+    requestInvitedUsers();
+    setReloadUserList(true);
+    setTimeout(() => {
+      setReloadUserList(false);
+    }, 5000);
+  };
+
+  // ---------- CallKeep Answer event handlers ----------
   const onAnswerCall = (data: any) => {
     acceptCall();
   };
 
+  // ---------- CallKeep Close event handlers ----------
   const onEndCall = (data: any) => {
     if (
       callState == ScreenState.ALL_USERS ||
@@ -744,6 +836,25 @@ const DashboardScreen: React.FC = () => {
     );
   };
 
+  // ---------- Send invite to user ----------
+  const sendInviteToUser = (user: UserModel) => {
+    if (!socket.current) return;
+    socket.current.emit(
+      "inviteUser",
+      {
+        toUserId: user.userId,
+      },
+      (response: any) => {
+        if (response.success) {
+          Alert.alert("Invite Sent", `Invitation sent to ${user.name}.`);
+        } else {
+          Alert.alert("Invite Failed", response.message || "Please try again.");
+        }
+        refreshData();
+      },
+    );
+  };
+
   // ---------- Render UI based on callState ----------
   switch (callState) {
     case ScreenState.UPDATE_USER:
@@ -758,11 +869,11 @@ const DashboardScreen: React.FC = () => {
       return (
         <ChatScreen
           callerId={callerId!}
-          user={otherUserDetail.current!}
+          details={chatUserDetail.current!}
           onBack={() => setCallState(ScreenState.ALL_USERS)}
           onCall={(type: CallType) => {
-            otherUserId.current = otherUserDetail.current!.userId;
-            otherUserName.current = otherUserDetail.current!.name;
+            otherUserId.current = chatUserDetail.current!.user!.userId;
+            otherUserName.current = chatUserDetail.current!.user!.name;
             startCall(type);
           }}
           socket={socket.current!}
@@ -771,9 +882,16 @@ const DashboardScreen: React.FC = () => {
     case ScreenState.ALL_USERS:
       return (
         <ContactListScreen
-          onTapUser={(user: UserModel) => {
-            otherUserDetail.current = user;
+          chatList={chatList}
+          invitedUsers={invitedUsers}
+          onTapAdd={(user) => sendInviteToUser(user!)}
+          onTapUser={(chatItem) => {
+            chatUserDetail.current = chatItem;
             setCallState(ScreenState.SPECIFIC_USER);
+          }}
+          reloadUserList={reloadUserList}
+          onTapInvite={(userItem, isAccepted) => {
+            handeleInvitedUserRequest(userItem, isAccepted);
           }}
           onJoin={(user, type: CallType) => {
             otherUserId.current = user.userId;
