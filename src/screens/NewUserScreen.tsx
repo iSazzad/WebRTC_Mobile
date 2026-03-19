@@ -18,6 +18,8 @@ import { Color } from "../utils/colors";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Routes } from "../navigation/Routes";
 import { isValidOtp } from "../utils/validations";
+import { RootStackParamList } from "../navigation/types";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 const NewUserScreen: React.FC = () => {
   const [isNewUser, setIsNewUser] = useState(true);
@@ -29,12 +31,13 @@ const NewUserScreen: React.FC = () => {
   const [isEmailConfirm, setIsEmailConfirm] = useState(false);
 
   const userViewModel = new UserViewModel();
-  const navigation = useNavigation();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   useFocusEffect(
     useCallback(() => {
       checkUser();
-    }, [])
+    }, []),
   );
 
   /**
@@ -47,7 +50,7 @@ const NewUserScreen: React.FC = () => {
       console.log("user data: ", userData);
 
       if (userData.userId) {
-        navigation.navigate(Routes.Dashboard, {});
+        navigation.navigate(Routes.Dashboard);
       }
     }
   };
@@ -94,7 +97,7 @@ const NewUserScreen: React.FC = () => {
     try {
       const response = await userViewModel.createUser(
         type == 1 ? userName : undefined,
-        type == 0 ? undefined : userEmail
+        type == 0 ? undefined : userEmail,
       );
 
       if (type == 1) {
@@ -166,7 +169,7 @@ const NewUserScreen: React.FC = () => {
    * @param response
    */
   const manageResponse = async (
-    response: CommonResponse<CreateUserResponse>
+    response: CommonResponse<CreateUserResponse>,
   ) => {
     // Store tokens
     if (response.data.tokens?.access) {
@@ -180,13 +183,13 @@ const NewUserScreen: React.FC = () => {
     if (response.data.user) {
       await AsyncStorage.setItem(
         "userDetails",
-        JSON.stringify(response.data.user)
+        JSON.stringify(response.data.user),
       );
     }
 
     setUserName("");
     setUserEmail("");
-    navigation.navigate(Routes.Dashboard, {});
+    navigation.navigate(Routes.Dashboard);
   };
 
   return (

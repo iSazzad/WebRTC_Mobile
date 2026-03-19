@@ -791,7 +791,7 @@ const DashboardScreen: React.FC = () => {
     setCallTime(null);
     setLocalCallType(null);
     setRemoteCallType(null);
-    setCallState(ScreenState.SPECIFIC_USER);
+    // setCallState(ScreenState.SPECIFIC_USER);
     stopLocalMedia();
     InCallManager.stop();
     InCallManager.stopRingtone();

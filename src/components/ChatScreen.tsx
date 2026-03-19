@@ -208,6 +208,7 @@ export default function ChatScreen({
     const curr = messages[index];
     const prev = messages[index + 1];
     return (
+      curr.senderId !== callerId &&
       new Date(curr.createdAt) > lastReadAt?.current &&
       (!prev || new Date(prev.createdAt) <= lastReadAt?.current)
     );
@@ -300,42 +301,29 @@ export default function ChatScreen({
     const status = getMessageStatus(item);
     const currentDate = new Date(item.createdAt);
 
-    const prev = messages[index + 1];
-    const next = messages[index - 1];
+    const current = messages[index];
+    const next = messages[index + 1];
 
-    const showDateHeader =
-      !prev || !isSameDay(currentDate, new Date(prev.createdAt));
+    const showDateHeader = next
+      ? !isSameDay(new Date(next.createdAt), currentDate)
+      : false;
 
-    const isFirstInGroup = !isSameSender(item, prev);
+    const isFirstInGroup = !isSameSender(item, current);
     const isLastInGroup = !isSameSender(item, next);
 
     return (
       <>
-        {showDateHeader && (
-          <View style={styles.dateHeader}>
-            <Text style={styles.dateHeaderText}>
-              {getDateHeader(currentDate)}
-            </Text>
-          </View>
-        )}
-
-        {shouldShowUnreadDivider(index) && (
-          <View style={styles.unreadDivider}>
-            <Text style={styles.unreadText}>Unread messages</Text>
-          </View>
-        )}
-
         <View style={[styles.messageRow, isMe ? styles.right : styles.left]}>
           <View
             style={[
               styles.bubble,
               isMe ? styles.myBubble : styles.otherBubble,
-              !isFirstInGroup && styles.groupedTop,
-              !isLastInGroup && styles.groupedBottom,
+              !isFirstInGroup && styles.groupedBottom,
+              !isLastInGroup && styles.groupedTop,
             ]}
           >
             <Text style={isMe ? styles.messageMyText : styles.messageText}>
-              {item.message}
+              {item.message} {index}
             </Text>
 
             <View style={styles.metaRow}>
@@ -359,6 +347,20 @@ export default function ChatScreen({
             </View>
           </View>
         </View>
+
+        {shouldShowUnreadDivider(index) && (
+          <View style={styles.unreadDivider}>
+            <Text style={styles.unreadText}>Unread messages</Text>
+          </View>
+        )}
+
+        {showDateHeader && (
+          <View style={styles.dateHeader}>
+            <Text style={styles.dateHeaderText}>
+              {getDateHeader(currentDate)}
+            </Text>
+          </View>
+        )}
       </>
     );
   };
@@ -379,31 +381,31 @@ export default function ChatScreen({
           {/* HEADER */}
           <View style={styles.header}>
             <TouchableOpacity onPress={handleBack}>
-              <MaterialIcons name="arrow-back" size={24} color="#fff" />
+              <MaterialIcons name="arrow-back" size={24} color={Color.White} />
             </TouchableOpacity>
 
             <Avatar
-              name={details.user?.name ?? ""}
-              imageUrl={details.user?.imageUrl ?? ""}
+              name={details?.user?.name ?? ""}
+              imageUrl={details?.user?.imageUrl ?? ""}
               size={40}
               style={{ marginHorizontal: 10 }}
             />
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.username}>{details.user?.name}</Text>
+              <Text style={styles.username}>{details?.user?.name}</Text>
               <Text style={styles.status}>Online</Text>
             </View>
 
             <Ionicons
               name="call-outline"
               size={22}
-              color="#fff"
+              color={Color.White}
               onPress={() => onCall("audio")}
             />
             <Ionicons
               name="videocam-outline"
               size={22}
-              color="#fff"
+              color={Color.White}
               style={{ marginLeft: 12 }}
               onPress={() => onCall("video")}
             />
@@ -436,7 +438,7 @@ export default function ChatScreen({
               multiline
             />
             <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-              <MaterialIcons name="send" size={22} color="#fff" />
+              <MaterialIcons name="send" size={22} color={Color.White} />
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -447,7 +449,7 @@ export default function ChatScreen({
 
 /* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: Color.White },
 
   header: {
     flexDirection: "row",
@@ -472,7 +474,7 @@ const styles = StyleSheet.create({
   },
   stickyDateText: { fontSize: 12, fontWeight: "600", color: "#555555" },
 
-  messageRow: { flexDirection: "row", marginBottom: 2 },
+  messageRow: { flexDirection: "row", marginBottom: 6 },
   left: { justifyContent: "flex-start" },
   right: { justifyContent: "flex-end" },
 
@@ -480,8 +482,8 @@ const styles = StyleSheet.create({
   myBubble: { backgroundColor: Color.ThemeMain },
   otherBubble: { backgroundColor: "#eee" },
 
-  groupedTop: { borderTopLeftRadius: 4, borderTopRightRadius: 4 },
-  groupedBottom: { borderBottomLeftRadius: 4, borderBottomRightRadius: 4 },
+  groupedTop: { borderTopLeftRadius: 6, borderTopRightRadius: 6 },
+  groupedBottom: { borderBottomLeftRadius: 6, borderBottomRightRadius: 6 },
 
   messageMyText: { color: "#fff", fontSize: 15 },
   messageText: { color: "#000", fontSize: 15 },
